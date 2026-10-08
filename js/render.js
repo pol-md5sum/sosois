@@ -382,8 +382,14 @@ export async function renderCard(canvas, content, index, env) {
 
   // 첫 장(또는 사용자가 배경을 넣은 장): 주제에 맞는 배경
   const bgImg = env.bgs?.[`${content.id}:${index}`];
+  // 첫 장 스타일: 사진 매거진 / 캐릭터 썸네일 / 기본
+  const coverStyle = st.cover === 'classic' ? 'classic' : (content.coverStyle || settings.coverStyle || 'magazine');
+  if (index === 0 && coverStyle === 'character') {
+    await drawCharacterCover(ctx, content, card, { family, t, settings, env, fontScale, pos: st.moaPos });
+    return canvas;
+  }
   // 첫 장 + 사진 배경 → 매거진 커버 스타일 (사진 위 흰색 굵은 제목)
-  if (bgImg && index === 0 && st.cover !== 'classic') {
+  if (bgImg && index === 0 && coverStyle === 'magazine') {
     drawMagazineCover(ctx, content, card, bgImg, { family, t, settings, env, pos: st.moaPos || 'br', moaScale: 0.62 * (st.moaScale || 1), fontScale });
     return canvas;
   }
@@ -661,6 +667,99 @@ function layCta(ctx, card, y, o, content, settings) {
   });
   ctx.font = `800 32px ${family}`; ctx.fillStyle = textColor; ctx.textAlign = 'center';
   ctx.fillText(settings.handle, SIZE / 2, yy + 196); ctx.textAlign = 'left';
+}
+
+// ---------- 캐릭터 썸네일 커버 (흰 배경 + 큰 제목 + 말풍선 + 모아) ----------
+export const CHARACTER_FONTS = { title: '"Jua", "GmarketSans", "Pretendard Variable", sans-serif', bubble: '"Nanum Pen Script", "Jua", "Pretendard Variable", sans-serif' };
+const NUM_RE = /\d[\d,.]*\s?(만|천|억|조|%|원|년|배|살|대|가지|개)?/g;
+
+async function drawCharacterCover(ctx, content, card, { t, settings, env, fontScale, pos }) {
+  const accent = '#3B7DD8';
+  const title = card.title || content.title;
+  const says = card.moaSays || '';
+  try {
+    await Promise.all([document.fonts.load(`400 80px ${CHARACTER_FONTS.title}`, title), document.fonts.load(`400 40px ${CHARACTER_FONTS.bubble}`, says || '가')]);
+  } catch { /* 폰트 실패 시 대체 폰트 */ }
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, SIZE, H);
+
+  // 제목: 가운데 정렬, 핵심어·숫자는 파란색
+  const fam = CHARACTER_FONTS.title;
+  const maxW = SIZE - 120;
+  setSpacing(ctx, -3);
+  const r = fit(ctx, title, { family: fam, weight: 400, max: Math.round(150 * fontScale), min: 80, maxLines: 3, widthAt: () => maxW });
+  const lh = 1.12;
+  const blockH = r.lines.length * r.size * lh;
+  const top = Math.round(H * 0.1 + (H * 0.42 - blockH) / 2);
+  const flags = new Array(title.length).fill(false);
+  if (card.highlight) { let i = title.indexOf(card.highlight); while (i >= 0) { for (let k = 0; k < card.highlight.length; k++) flags[i + k] = true; i = title.indexOf(card.highlight, i + 1); } }
+  for (const m of title.matchAll(NUM_RE)) for (let k = 0; k < m[0].length; k++) flags[m.index + k] = true;
+  ctx.font = `400 ${r.size}px ${fam}`; ctx.textBaseline = 'alphabetic';
+  r.lines.forEach((ln, i) => {
+    const line = title.slice(ln.start, ln.end);
+    const w = ctx.measureText(line).width;
+    let x = (SIZE - w) / 2;
+    const y = top + r.size + i * r.size * lh;
+    let k = 0;
+    while (k < line.length) {
+      const on = flags[ln.start + k];
+      let j = k;
+      while (j < line.length && flags[ln.start + j] === on) j++;
+      const seg = line.slice(k, j);
+      ctx.fillStyle = on ? accent : '#1E1E1E';
+      ctx.fillText(seg, x, y);
+      x += ctx.measureText(seg).width;
+      k = j;
+    }
+  });
+  setSpacing(ctx, 0);
+
+  // 모아 (오른쪽 아래 크게)
+  const box = moaBox(env.moa, pos === 'bl' ? 'bl' : 'br', 1.0 + ((H - 1080) / 1080) * 1.2); // 세로형일수록 크게
+  if (env.moa) drawMoa(ctx, env, card, box, t, '"Pretendard Variable", sans-serif');
+
+  // 노란 손글씨 말풍선 (모아 왼쪽)
+  if (says) {
+    const bf = CHARACTER_FONTS.bubble;
+    ctx.font = `400 46px ${bf}`;
+    const words = says.split(/\s+/);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(next).width > 340 && cur) { lines.push(cur); cur = w; } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    const shown = lines.slice(0, 3);
+    const bw = Math.max(...shown.map((l) => ctx.measureText(l).width)) + 64;
+    const bh = shown.length * 50 + 40;
+    const bx = Math.max(40, (pos === 'bl' ? box.x + box.w + 10 : box.x - bw + 30));
+    const by = box.y + box.h * 0.32 - bh / 2;
+    ctx.save();
+    ctx.fillStyle = '#FFE58A'; ctx.strokeStyle = '#4A3B2F'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+    // 손으로 그린 듯한 둥근 사각형 + 꼬리
+    ctx.beginPath();
+    const rr = 34;
+    ctx.moveTo(bx + rr, by);
+    ctx.lineTo(bx + bw - rr, by + 2);
+    ctx.quadraticCurveTo(bx + bw, by, bx + bw - 2, by + rr);
+    const tailY = by + bh * 0.62;
+    if (pos !== 'bl') { ctx.lineTo(bx + bw - 2, tailY - 14); ctx.lineTo(bx + bw + 46, tailY + 18); ctx.lineTo(bx + bw - 6, tailY + 6); }
+    ctx.lineTo(bx + bw, by + bh - rr);
+    ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh - 1);
+    ctx.lineTo(bx + rr, by + bh);
+    ctx.quadraticCurveTo(bx, by + bh, bx + 1, by + bh - rr);
+    if (pos === 'bl') { ctx.lineTo(bx + 2, tailY + 6); ctx.lineTo(bx - 46, tailY + 18); ctx.lineTo(bx + 2, tailY - 14); }
+    ctx.lineTo(bx, by + rr);
+    ctx.quadraticCurveTo(bx, by, bx + rr, by);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3A2E25'; ctx.font = `400 46px ${bf}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    shown.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + 20 + 25 + i * 50));
+    ctx.restore();
+  }
+
+  // 작은 계정 표기
+  ctx.fillStyle = '#9A9A9A'; ctx.font = `600 24px "Pretendard Variable", sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(settings.handle, PAD - 20, H - 44);
 }
 
 // ---------- 매거진 커버 ----------

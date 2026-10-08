@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   theme: { bg: '#FFF9F0', brown: '#6F6258', pink: '#F5B8B5', green: '#C9D8C0' },
   format: '1080x1350',
   imageProvider: 'gpt',
+  coverStyle: 'magazine', // 첫 장 스타일: magazine(사진) / character(캐릭터 썸네일) / classic(기본)
   autoCover: true, // 콘텐츠를 만들면 첫 장 실사 배경을 AI로 자동 생성
   imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
