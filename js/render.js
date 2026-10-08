@@ -1000,6 +1000,14 @@ function keyFlags(text, hl) {
   for (const m of text.matchAll(NUM_RE)) for (let k = 0; k < m[0].length; k++) flags[m.index + k] = true;
   return flags;
 }
+// "라벨: 내용" 형식 항목은 라벨을 강조한다 (예: "11월 20일: 신청 시작")
+function itemFlags(text, hl) {
+  const flags = keyFlags(text, hl);
+  const i = text.indexOf(': ');
+  if (i > 0 && i <= 16) { flags.fill(false); for (let k = 0; k <= i; k++) flags[k] = true; }
+  return flags;
+}
+
 // 줄마다 정렬해서 강조어는 다른 색으로 그린다
 function drawRich(ctx, text, lines, { x, w, top, size, lh, color, accent, flags, align = 'center', marker }) {
   ctx.textBaseline = 'alphabetic';
@@ -1244,7 +1252,7 @@ async function renderToon(ctx, content, { card, st, settings, env, t, fontScale,
     sketchRect(ctx, X + 10, y, W - 20, mh, 18, seed, '#1E1E1E', 4.5);
     items.forEach((it, i) => {
       const cy = y + 25 + rowH * (i + 0.5);
-      if (card.type === 'LIFE/CHECK') {
+      if (card.type === 'LIFE/CHECK' && (card.kind || 'checklist') === 'checklist') {
         sketchRect(ctx, X + 50, cy - 24, 48, 48, 8, seed + i, '#1E1E1E', 4);
         ctx.strokeStyle = accent; ctx.lineWidth = 7; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(X + 58, cy - 2); ctx.lineTo(X + 72, cy + 14); ctx.lineTo(X + 104, cy - 30); ctx.stroke();
@@ -1256,7 +1264,7 @@ async function renderToon(ctx, content, { card, st, settings, env, t, fontScale,
       const r = fit(ctx, it, { family: T, weight: 700, max: Math.round(54 * fontScale), min: 32, maxLines: 2, widthAt: () => tw });
       ctx.font = `700 ${r.size}px ${T}`;
       const th = r.lines.length * r.size * 1.15;
-      drawRich(ctx, it, r.lines, { x: X + 130, w: tw, top: cy - th / 2 - r.size * 0.12, size: r.size, lh: 1.15, color: ink, accent, flags: keyFlags(it, card.highlight), align: 'left' });
+      drawRich(ctx, it, r.lines, { x: X + 130, w: tw, top: cy - th / 2 - r.size * 0.12, size: r.size, lh: 1.15, color: ink, accent, flags: itemFlags(it, card.highlight), align: 'left' });
       if (i < items.length - 1) sketchLine(ctx, X + 130, y + 25 + rowH * (i + 1), X + W - 50, y + 25 + rowH * (i + 1), seed + 40 + i, '#CFCFCF', 2.5);
     });
     ctx.restore();
@@ -1377,7 +1385,8 @@ async function renderMagazine(ctx, content, { card, st, settings, env, t, fontSc
 
   // 섹션 라벨
   let y = 150;
-  const label = { HOOK: 'INTRO', WHAT: 'WHAT', WHY: 'WHY', 'SO WHAT': 'SO WHAT', "MOA'S PICK": "MOA'S PICK", 'LIFE/CHECK': 'CHECK', CTA: 'FOLLOW' }[card.type] || card.type;
+  const kindTag = { checklist: 'CHECK', timeline: 'TIMELINE', howto: 'HOW TO', numbers: 'NUMBERS', qa: 'Q&A', glossary: 'WORDS', proscons: 'VIEWS', related: 'MORE' }[card.kind];
+  const label = kindTag || { HOOK: 'INTRO', WHAT: 'WHAT', WHY: 'WHY', 'SO WHAT': 'SO WHAT', "MOA'S PICK": "MOA'S PICK", 'LIFE/CHECK': 'CHECK', CTA: 'FOLLOW' }[card.type] || card.type;
   setSpacing(ctx, 3);
   ctx.font = `900 26px ${F}`; ctx.fillStyle = ink;
   const lw = ctx.measureText(label).width;
@@ -1416,7 +1425,7 @@ async function renderMagazine(ctx, content, { card, st, settings, env, t, fontSc
       const r = fit(ctx, it, { family: F, weight: 700, max: Math.round(42 * fontScale), min: 28, maxLines: 2, widthAt: () => W - 130 });
       ctx.font = `700 ${r.size}px ${F}`;
       const th = r.lines.length * r.size * 1.3;
-      drawRich(ctx, it, r.lines, { x: X + 130, w: W - 130, top: y + rowH / 2 - th / 2 - r.size * 0.12, size: r.size, lh: 1.3, color: ink, flags: keyFlags(it, card.highlight), marker, align: 'left' });
+      drawRich(ctx, it, r.lines, { x: X + 130, w: W - 130, top: y + rowH / 2 - th / 2 - r.size * 0.12, size: r.size, lh: 1.3, color: ink, flags: itemFlags(it, card.highlight), marker, align: 'left' });
       y += rowH;
     });
     if (items.length) { ctx.fillStyle = ink; ctx.fillRect(X, y, W, 1.5); }
