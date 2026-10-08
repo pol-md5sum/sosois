@@ -40,6 +40,10 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html .nojekyll css js assets data _site/ 2>/dev/null || true
+          # 배포마다 JS·CSS 주소에 버전을 붙여 브라우저가 예전 파일을 쓰지 않게 한다
+          V="${GITHUB_SHA::7}"
+          sed -i -E "s#(from '\./[a-z-]+\.js)'#\1?v=$V'#g" _site/js/*.js
+          sed -i -E "s#(src|href)=\"(js/app\.js|css/app\.css|js/vendor/jszip\.min\.js)\"#\1=\"\2?v=$V\"#g" _site/index.html
           test -f _site/data/news.json || echo '{"generatedAt":null,"items":[],"trends":[],"errors":["뉴스 수집에 실패했습니다."]}' > _site/data/news.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

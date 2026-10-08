@@ -8,7 +8,7 @@ import {
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
   putBg, deleteBg, getBgsFor,
 } from './store.js';
-import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme } from './render.js';
+import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS } from './render.js';
 
 const TOPICS = () => TOPIC_KEYS().map((k) => [k, CATEGORIES[k]]);
 
@@ -126,7 +126,7 @@ function setDraftNews(n) { sessionStorage.setItem('moa.draftNews', JSON.stringif
 function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.draftNews')) || null; } catch { return null; } }
 
 // ---------- 라우터 ----------
-const routes = { dashboard, topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
+const routes = { dashboard, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
 async function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   const r = routes[name] ? name : 'dashboard';
@@ -564,7 +564,7 @@ function createIntro() {
   };
   saveContent(c);
   toast('첫 게시물(모아 소개)을 만들었어요.');
-  location.hash = `#/editor/${c.id}`;
+  location.replace(`#/editor/${c.id}`); // 뒤로 가기로 다시 만들어지지 않게
 }
 
 // ---------- 원클릭 ----------
@@ -940,6 +940,11 @@ async function settingsView() {
     </div>
     <div class="two">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<div class="field"><label for="img-${k}">${v.label} 모델 이름</label><input type="text" id="img-${k}" value="${esc(s.imageModels?.[k] || v.defaultModel)}"></div>`).join('')}</div>
     <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option><option value="Gmarket" ${s.font === 'Gmarket' ? 'selected' : ''}>G마켓 산스 (매거진 느낌)</option></select></div>
+    <div class="two">
+      <div class="field"><label for="toonbg">인스타툰 배경</label><select id="toonbg"><option value="white" ${(s.toonBg || 'white') === 'white' ? 'selected' : ''}>흰색</option><option value="pastel" ${s.toonBg === 'pastel' ? 'selected' : ''}>파스텔 (장마다 다른 색)</option></select></div>
+      <div class="field"><label for="toonfont">인스타툰 제목 폰트</label><select id="toonfont">${Object.keys(TOON_FONTS).map((k) => `<option value="${k}" ${k === (s.toonFont || 'Jua') ? 'selected' : ''}>${{ Jua: '주아 (둥근 손글씨)', DoHyeon: '도현 (좁고 굵게)', BlackHanSans: '검은고딕 (아주 굵게)' }[k]}</option>`).join('')}</select></div>
+    </div>
+    <label class="small">인스타툰 강조색 <input type="color" id="toonaccent" value="${s.toonAccent || '#F0506E'}"></label>
     <div class="field"><label for="decktheme">카드뉴스 디자인 (7장 전체)</label><select id="decktheme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === (s.deckTheme || 'toon') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 매거진 디자인일 때 첫 장 실사 사진 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
     <div class="row">${Object.entries({ bg: '배경', brown: '브라운', pink: '핑크', green: '그린' }).map(([k, l]) => `<label class="small">${l} <input type="color" data-theme="${k}" value="${s.theme[k]}"></label>`).join('')}
@@ -972,6 +977,9 @@ async function settingsView() {
     ns.format = $('#format').value;
     ns.autoCover = $('#autocover').checked;
     ns.deckTheme = $('#decktheme').value;
+    ns.toonBg = $('#toonbg').value;
+    ns.toonFont = $('#toonfont').value;
+    ns.toonAccent = $('#toonaccent').value;
     ns.imageProvider = $('#imgprov').value;
     ns.imageModels = Object.fromEntries(Object.entries(IMAGE_PROVIDERS).map(([k, v]) => [k, $(`#img-${k}`).value.trim() || v.defaultModel]));
     $$('[data-theme]').forEach((i) => { ns.theme[i.dataset.theme] = i.value; });

@@ -20,7 +20,10 @@ export const DEFAULT_SETTINGS = {
   theme: { bg: '#FFF9F0', brown: '#6F6258', pink: '#F5B8B5', green: '#C9D8C0' },
   format: '1080x1350',
   imageProvider: 'gpt',
-  deckTheme: 'toon', // 카드뉴스 디자인: toon(인스타툰) / magazine(매거진)
+  deckTheme: 'toon',
+  toonBg: 'white', // 인스타툰 배경: white(흰색) / pastel(장마다 파스텔)
+  toonAccent: '#F0506E', // 인스타툰 강조색
+  toonFont: 'Jua', // 인스타툰 제목 폰트 // 카드뉴스 디자인: toon(인스타툰) / magazine(매거진)
   autoCover: true, // 콘텐츠를 만들면 첫 장 실사 배경을 AI로 자동 생성
   imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
