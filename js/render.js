@@ -1079,153 +1079,258 @@ const cardTexts = (card) => [card.title, card.body, card.highlight, card.moaSays
 // ---------------------------------------------------------------------
 // 인스타툰
 // ---------------------------------------------------------------------
-async function renderToon(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
-  await loadThemeFonts([...cardTexts(card), settings.handle, '0123456789/#']);
-  const T = CHARACTER_FONTS.title;
-  const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
-  const ink = st.textColor || '#1E1E1E';
-  const accent = st.accent || '#3B7DD8';
-  const pink = '#F08C8C';
-  ctx.fillStyle = st.bg || '#FFFFFF'; ctx.fillRect(0, 0, SIZE, H);
+// 인스타툰 배경 (흰색 또는 장마다 다른 파스텔)
+export const TOON_PASTELS = ['#FBE8A6', '#BFE3B4', '#BFDDF2', '#F9C29B', '#D9C3F0', '#F8CFE0', '#F6F1C7'];
+export const TOON_FONTS = {
+  Jua: '"Jua", "Pretendard Variable", sans-serif',
+  DoHyeon: '"Do Hyeon", "Jua", "Pretendard Variable", sans-serif',
+  BlackHanSans: '"Black Han Sans", "Jua", "Pretendard Variable", sans-serif',
+};
 
-  if (index === 0) {
-    await drawCharacterCover(ctx, content, card, { t, settings, env, fontScale, pos: st.moaPos });
-    return;
+// 손그림 말풍선: 텍스트 박스를 그리고 꼬리를 target 쪽으로 낸다
+function comicBubble(ctx, text, { cx, cy, maxW = 560, size = 50, target, fill = '#FFFFFF', ink = '#1E1E1E', seed = 1, align = 'center' }) {
+  if (!text) return null;
+  const bf = CHARACTER_FONTS.bubble;
+  ctx.save();
+  ctx.font = `400 ${size}px ${bf}`;
+  const lines = [];
+  for (const para of String(text).split('\n')) {
+    let cur = '';
+    for (const ch of para.split(/(\s+)/)) {
+      const next = cur + ch;
+      if (ctx.measureText(next.trim()).width > maxW && cur.trim()) { lines.push(cur.trim()); cur = ch.trimStart(); } else cur = next;
+    }
+    if (cur.trim()) lines.push(cur.trim());
   }
+  const shown = lines.slice(0, 5);
+  const lh = size * 1.12;
+  const w = Math.max(...shown.map((l) => ctx.measureText(l).width)) + size * 1.3;
+  const h = shown.length * lh + size * 0.9;
+  let x = align === 'left' ? cx : cx - w / 2;
+  x = Math.max(28, Math.min(SIZE - w - 28, x));
+  const y = cy - h / 2;
+  const rnd = seeded(seed);
+  const j = () => (rnd() - 0.5) * 6;
+  const r = Math.min(h / 2, 70);
+  // 꼬리 (말풍선 가장자리 → 대상 방향)
+  let tail = null;
+  if (target) {
+    const bx = Math.max(x + r, Math.min(x + w - r, target.x));
+    const by = target.y > y + h ? y + h : target.y < y ? y : null;
+    if (by !== null) {
+      const dir = Math.sign(target.y - by) || 1;
+      const len = Math.min(70, Math.abs(target.y - by) * 0.6 + 30);
+      const tx = bx + Math.max(-60, Math.min(60, (target.x - bx) * 0.4));
+      tail = [[bx - 22, by], [tx, by + dir * len], [bx + 22, by]];
+    } else {
+      const side = target.x > x + w ? x + w : x;
+      const dir = target.x > x + w ? 1 : -1;
+      const ty = Math.max(y + r * 0.6, Math.min(y + h - r * 0.6, target.y));
+      tail = [[side, ty - 20], [side + dir * 60, ty + 26], [side, ty + 20]];
+    }
+  }
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y + j());
+    ctx.quadraticCurveTo(x + w / 2, y + j(), x + w - r, y + j());
+    ctx.quadraticCurveTo(x + w + j(), y + j(), x + w + j(), y + h / 2);
+    ctx.quadraticCurveTo(x + w + j(), y + h + j(), x + w - r, y + h + j());
+    ctx.quadraticCurveTo(x + w / 2, y + h + j(), x + r, y + h + j());
+    ctx.quadraticCurveTo(x + j(), y + h + j(), x + j(), y + h / 2);
+    ctx.quadraticCurveTo(x + j(), y + j(), x + r, y + j());
+    ctx.closePath();
+  };
+  ctx.fillStyle = fill; ctx.strokeStyle = ink; ctx.lineWidth = 4.5;
+  if (tail) { ctx.beginPath(); ctx.moveTo(...tail[0]); ctx.lineTo(...tail[1]); ctx.lineTo(...tail[2]); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  path(); ctx.fill(); ctx.stroke();
+  if (tail) { ctx.strokeStyle = fill; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(tail[0][0] + 4, tail[0][1]); ctx.lineTo(tail[2][0] - 4, tail[2][1]); ctx.stroke(); }
+  ctx.fillStyle = '#222222';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  shown.forEach((l, i) => ctx.fillText(l, x + w / 2, y + size * 0.45 + lh * (i + 0.5) + 2));
+  ctx.restore();
+  return { x, y, w, h };
+}
+
+// 효과음처럼 쓰는 손글씨 한마디 (말풍선 없이)
+function sfx(ctx, text, x, y, size = 44, rot = -0.12, color = '#1E1E1E') {
+  if (!text) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.font = `400 ${size}px ${CHARACTER_FONTS.bubble}`; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 0, 0); ctx.restore();
+}
+
+// 모아를 크게, 아래 가장자리에 걸치게(잘리게) 배치
+function toonMoaBox(env, side, heightRatio) {
+  const h = H * heightRatio;
+  const ratio = env.moa ? env.moa.naturalWidth / env.moa.naturalHeight : 0.86;
+  const w = h * ratio;
+  const x = side === 'left' ? 30 : side === 'center' ? (SIZE - w) / 2 : SIZE - w - 30;
+  const y = H - h * 0.9; // 아래 10%는 화면 밖으로
+  return { x, y, w, h };
+}
+
+async function renderToon(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
+  const fontKey = settings.toonFont && TOON_FONTS[settings.toonFont] ? settings.toonFont : 'Jua';
+  const T = TOON_FONTS[fontKey];
+  const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
+  const sample = [...new Set(cardTexts(card).filter(Boolean).join('').replace(/\s/g, ''))].join('') || '가';
+  try { await Promise.all([document.fonts.load(`400 80px ${T}`, sample), document.fonts.load(`400 40px ${CHARACTER_FONTS.bubble}`, sample), document.fonts.load(`700 40px ${B}`, sample)]); } catch { /* 대체 폰트 */ }
+
+  const pastel = (settings.toonBg || 'white') === 'pastel';
+  const bg = st.bg || (pastel ? TOON_PASTELS[(index + (content.id || '').length) % TOON_PASTELS.length] : '#FFFFFF');
+  const ink = st.textColor || '#141414';
+  const accent = st.accent || settings.toonAccent || '#F0506E';
+  const bubbleFill = pastel ? '#FFFFFF' : '#F1F1F1';
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, H);
 
   const total = content.cards.length;
-  const seed = index * 97 + 13;
-  // 상단: 주제 해시태그 + 페이지
-  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
-  ctx.font = `400 36px ${T}`; ctx.fillStyle = accent; ctx.textBaseline = 'middle';
-  ctx.fillText(`#${cat.name.replace(/\s/g, '')}`, 64, 74);
-  ctx.font = `600 26px ${B}`; ctx.fillStyle = '#9A9A9A'; ctx.textAlign = 'right';
-  ctx.fillText(`${index + 1}/${total}`, SIZE - 64, 74);
-  ctx.textAlign = 'left';
-
-  // 모아: 장마다 좌우 번갈아, 말풍선은 반대쪽
-  const isCta = layout === 'cta';
-  const showMoa = st.moaPos !== 'none' && env.moa;
-  const sideDefault = index % 2 ? 'bl' : 'br';
-  const mpos = isCta ? 'bc' : (st.moaPos && st.moaPos !== 'none' ? (st.moaPos.endsWith('l') ? 'bl' : 'br') : sideDefault);
-  const mscale = (isCta ? 0.78 : 0.82) * (1 + ((H - 1080) / 1080) * 0.9) * (st.moaScale || 1);
-  const box = showMoa ? moaBox(env.moa, mpos, mscale) : null;
-  const bottom = box ? box.y - 34 : H - 90;
-  const X = 70;
+  const seed = index * 131 + (content.id || 'x').length * 7;
+  const X = 56;
   const W = SIZE - X * 2;
-  let y = 140;
+  const side = st.moaPos === 'bl' ? 'left' : st.moaPos === 'br' ? 'right' : (index % 2 ? 'left' : 'right');
+  const other = side === 'left' ? 'right' : 'left';
+  const showMoa = st.moaPos !== 'none' && env.moa;
+  const flipCard = (sd) => ({ ...card, style: { ...st, moaFlip: sd === 'left' ? !st.moaFlip : st.moaFlip } });
 
-  // 제목 (둥근 손글씨풍, 가운데)
-  const titleBlock = (text, max, maxLines, yy) => {
-    if (!text) return yy;
-    setSpacing(ctx, -2);
-    const r = fit(ctx, text, { family: T, weight: 400, max: Math.round(max * fontScale), min: 54, maxLines, widthAt: () => W });
-    ctx.font = `400 ${r.size}px ${T}`;
-    const end = drawRich(ctx, text, r.lines, { x: X, w: W, top: yy, size: r.size, lh: 1.18, color: ink, accent, flags: keyFlags(text, card.highlight) });
+  // 큰 손글씨 제목: 가운데 정렬, 핵심어·숫자는 강조색
+  const bigTitle = (text, max, maxLines, top) => {
+    if (!text) return top;
+    setSpacing(ctx, -Math.round(max * 0.03));
+    // 손글씨 제목은 굵게(합성 볼드)해서 마커로 쓴 느낌을 낸다
+    const r = fit(ctx, text, { family: T, weight: 700, max: Math.round(max * fontScale), min: 60, maxLines, widthAt: () => W });
+    ctx.font = `700 ${r.size}px ${T}`;
+    const end = drawRich(ctx, text, r.lines, { x: X, w: W, top, size: r.size, lh: 1.1, color: ink, accent, flags: keyFlags(text, card.highlight) });
     setSpacing(ctx, 0);
     return end;
   };
-  const bodyBlock = (text, yy, maxH, opts = {}) => {
-    if (!text) return yy;
-    const pad = 44;
-    const innerW = W - pad * 2 - 20;
-    const lh = 1.55;
-    let r = fit(ctx, text, { family: B, weight: 500, max: Math.round(44 * fontScale), min: 30, maxLines: 5, widthAt: () => innerW });
-    while (r.lines.length * r.size * lh + pad * 2 > maxH && r.size > 28) r = fit(ctx, text, { family: B, weight: 500, max: r.size - 2, min: 28, maxLines: 5, widthAt: () => innerW });
-    ctx.font = `500 ${r.size}px ${B}`;
-    const tw = Math.max(...r.lines.map((ln) => ctx.measureText(text.slice(ln.start, ln.end)).width));
-    const bw = Math.min(W, tw + pad * 2 + 20);
-    const bh = (r.lines.length - 1) * r.size * lh + r.size * 1.25 + pad * 1.4;
-    const bx = X + (W - bw) / 2;
-    if (opts.box !== false) sketchRect(ctx, bx, yy, bw, bh, 34, seed + 3);
-    drawRich(ctx, text, r.lines, { x: bx, w: bw, top: yy + pad * 0.7 - r.size * 0.1, size: r.size, lh, color: '#3A3A3A', accent, flags: keyFlags(text, card.highlight) });
-    return yy + bh;
+  const pageMark = () => {
+    if (index === 0) return;
+    ctx.font = `600 24px ${B}`; ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${index + 1}/${total}`, SIZE - 40, 52); ctx.textAlign = 'left';
   };
+  const footer = (sd) => {
+    ctx.font = `600 22px ${B}`; ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.textBaseline = 'alphabetic';
+    const f = index === 1 && content.sources?.length ? `출처: ${content.sources.map((x) => x.name).filter(Boolean).slice(0, 2).join(', ')}` : settings.handle;
+    if (sd === 'left') { ctx.textAlign = 'right'; ctx.fillText(f, SIZE - 40, H - 30); ctx.textAlign = 'left'; } else ctx.fillText(f, 40, H - 30);
+  };
+  const moaAt = (sd, ratio) => {
+    if (!showMoa) return null;
+    const box = toonMoaBox(env, sd, ratio * (st.moaScale || 1));
+    drawMoa(ctx, env, flipCard(sd), box, t, B);
+    return box;
+  };
+  const head = (box) => ({ x: box.x + box.w * 0.5, y: box.y + box.h * 0.28 });
 
+  // ---------- 1장: 썸네일 ----------
+  if (index === 0) {
+    const titleEnd = bigTitle(card.title || content.title, 168, 3, Math.round(H * 0.06));
+    const room = H - titleEnd;
+    const box = moaAt(side, Math.min(0.5, Math.max(0.3, (room - 40) / H)));
+    if (box) comicBubble(ctx, card.moaSays, { cx: side === 'right' ? box.x - 40 : box.x + box.w + 40, cy: box.y + box.h * 0.32, maxW: 360, size: 46, target: head(box), fill: bubbleFill, seed, align: side === 'right' ? 'center' : 'center' });
+    footer(side);
+    return;
+  }
+
+  pageMark();
   if (layout === 'list') {
-    y = titleBlock(card.title, 88, 2, y) + 40;
+    let y = bigTitle(card.title, 104, 2, 80) + 34;
     const items = (card.items || []).slice(0, 5);
-    const rowH = Math.min(150, Math.floor((bottom - y) / Math.max(1, items.length)));
+    const memoBottom = H - H * 0.24;
+    const rowH = Math.min(140, Math.floor((memoBottom - y - 40) / Math.max(1, items.length)));
+    const mh = rowH * items.length + 50;
+    ctx.save(); ctx.translate(SIZE / 2, y + mh / 2); ctx.rotate(-0.012); ctx.translate(-SIZE / 2, -(y + mh / 2));
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(X + 10, y, W - 20, mh);
+    sketchRect(ctx, X + 10, y, W - 20, mh, 18, seed, '#1E1E1E', 4.5);
     items.forEach((it, i) => {
-      const cy = y + rowH / 2;
-      const isCheck = card.type === 'LIFE/CHECK';
-      sketchCircle(ctx, X + 40, cy, 30, seed + i, isCheck ? '#E6F3E1' : '#E3EEFB');
-      if (isCheck) {
-        ctx.save(); ctx.strokeStyle = '#3E8E57'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.beginPath(); ctx.moveTo(X + 26, cy); ctx.lineTo(X + 37, cy + 12); ctx.lineTo(X + 56, cy - 12); ctx.stroke(); ctx.restore();
+      const cy = y + 25 + rowH * (i + 0.5);
+      if (card.type === 'LIFE/CHECK') {
+        sketchRect(ctx, X + 50, cy - 24, 48, 48, 8, seed + i, '#1E1E1E', 4);
+        ctx.strokeStyle = accent; ctx.lineWidth = 7; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(X + 58, cy - 2); ctx.lineTo(X + 72, cy + 14); ctx.lineTo(X + 104, cy - 30); ctx.stroke();
       } else {
-        ctx.font = `400 38px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(i + 1), X + 40, cy + 2); ctx.textAlign = 'left';
+        ctx.font = `400 64px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), X + 74, cy + 4); ctx.textAlign = 'left';
       }
-      const tx = X + 96;
-      const tw = W - 96;
-      const r = fit(ctx, it, { family: B, weight: 700, max: Math.round(44 * fontScale), min: 28, maxLines: 2, widthAt: () => tw });
-      ctx.font = `700 ${r.size}px ${B}`;
-      const th = r.lines.length * r.size * 1.3;
-      drawRich(ctx, it, r.lines, { x: tx, w: tw, top: cy - th / 2 - r.size * 0.15, size: r.size, lh: 1.3, color: ink, accent, flags: keyFlags(it, card.highlight), align: 'left' });
-      if (i < items.length - 1) sketchLine(ctx, tx, y + rowH - 4, X + W, y + rowH - 4, seed + i + 50, '#D9D9D9', 2.5);
-      y += rowH;
+      const tw = W - 170;
+      const r = fit(ctx, it, { family: T, weight: 700, max: Math.round(54 * fontScale), min: 32, maxLines: 2, widthAt: () => tw });
+      ctx.font = `700 ${r.size}px ${T}`;
+      const th = r.lines.length * r.size * 1.15;
+      drawRich(ctx, it, r.lines, { x: X + 130, w: tw, top: cy - th / 2 - r.size * 0.12, size: r.size, lh: 1.15, color: ink, accent, flags: keyFlags(it, card.highlight), align: 'left' });
+      if (i < items.length - 1) sketchLine(ctx, X + 130, y + 25 + rowH * (i + 1), X + W - 50, y + 25 + rowH * (i + 1), seed + 40 + i, '#CFCFCF', 2.5);
     });
-    if (!items.length) bodyBlock(card.body, y, bottom - y);
-  } else if (layout === 'number' && card.number) {
-    y = titleBlock(card.title, 70, 2, y) + 30;
-    const r = fit(ctx, card.number, { family: T, weight: 400, max: 240, min: 110, maxLines: 1, widthAt: () => W });
-    ctx.font = `400 ${r.size}px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(card.number, SIZE / 2, y + r.size * 0.95);
-    y += r.size + 10;
-    if (card.numberLabel) { ctx.font = `700 44px ${B}`; ctx.fillStyle = ink; ctx.fillText(card.numberLabel, SIZE / 2, y + 40); y += 80; }
-    ctx.textAlign = 'left';
-    bodyBlock(card.body, y + 10, bottom - y - 10);
+    ctx.restore();
+    const box = moaAt(side, 0.3);
+    if (box) comicBubble(ctx, card.moaSays, { cx: side === 'right' ? box.x - 30 : box.x + box.w + 30, cy: box.y + box.h * 0.32, maxW: 320, size: 44, target: head(box), fill: bubbleFill, seed: seed + 9 });
+    if (!items.length && card.body) comicBubble(ctx, card.body, { cx: SIZE / 2, cy: y + 160, maxW: 700, size: 50, fill: bubbleFill, seed });
+    footer(side);
   } else if (layout === 'compare' && card.compare?.left) {
-    y = titleBlock(card.title, 80, 2, y) + 40;
-    const gap = 30;
-    const w = (W - gap) / 2;
+    const y = bigTitle(card.title, 100, 2, 80) + 40;
     const c = card.compare;
-    // 내용 길이에 맞춘 박스 높이
+    const gap = 28;
+    const w = (W - gap) / 2;
+    // 내용 길이에 맞춘 패널 높이
     let need = 0;
     for (const b of [c.left, c.right]) {
-      const rr = fit(ctx, b || '', { family: B, weight: 600, max: 44, min: 28, maxLines: 6, widthAt: () => w - 56 });
-      need = Math.max(need, rr.lines.length * rr.size * 1.45);
+      const rr = fit(ctx, b || '', { family: CHARACTER_FONTS.bubble, weight: 400, max: 50, min: 34, maxLines: 6, widthAt: () => w - 60 });
+      need = Math.max(need, rr.lines.length * rr.size * 1.2);
     }
-    const h = Math.min(bottom - y, 124 + need + 50);
-    [[c.leftTitle || 'BEFORE', c.left, accent, X], [c.rightTitle || 'AFTER', c.right, pink, X + w + gap]].forEach(([tt, body, col, x], i) => {
-      sketchRect(ctx, x, y, w, h, 30, seed + 10 + i);
-      ctx.font = `400 46px ${T}`; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(tt, x + w / 2, y + 56); ctx.textAlign = 'left';
-      sketchLine(ctx, x + 30, y + 100, x + w - 30, y + 100, seed + 20 + i, '#DDDDDD', 2.5);
-      const r = fit(ctx, body || '', { family: B, weight: 600, max: 44, min: 28, maxLines: 6, widthAt: () => w - 56 });
-      ctx.font = `600 ${r.size}px ${B}`;
-      drawRich(ctx, body || '', r.lines, { x: x + 28, w: w - 56, top: y + 124, size: r.size, lh: 1.45, color: ink, accent, flags: keyFlags(body || '', card.highlight) });
+    const h = Math.min(H - y - H * 0.32, 116 + need + 60);
+    [[c.leftTitle || 'BEFORE', c.left, X, -0.02], [c.rightTitle || 'AFTER', c.right, X + w + gap, 0.02]].forEach(([tt, body, x, rot], i) => {
+      ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot); ctx.translate(-(x + w / 2), -(y + h / 2));
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(x, y, w, h);
+      sketchRect(ctx, x, y, w, h, 16, seed + i, '#1E1E1E', 4.5);
+      ctx.font = `400 52px ${T}`; ctx.fillStyle = i ? accent : ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(tt, x + w / 2, y + 62); ctx.textAlign = 'left';
+      const r = fit(ctx, body || '', { family: CHARACTER_FONTS.bubble, weight: 400, max: 50, min: 34, maxLines: 6, widthAt: () => w - 60 });
+      ctx.font = `400 ${r.size}px ${CHARACTER_FONTS.bubble}`;
+      drawRich(ctx, body || '', r.lines, { x: x + 30, w: w - 60, top: y + 116, size: r.size, lh: 1.2, color: '#222', accent, flags: new Array((body || '').length).fill(false) });
+      ctx.restore();
     });
-  } else if (isCta) {
-    y = titleBlock(card.title, 100, 3, 170) + 26;
-    if (card.body) { ctx.font = `500 40px ${B}`; ctx.fillStyle = '#555'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(card.body, SIZE / 2, y + 40); ctx.textAlign = 'left'; y += 80; }
-    const icons = ['저장', '공유', '팔로우'];
-    icons.forEach((label, i) => {
-      const cx = SIZE / 2 + (i - 1) * 200;
-      const cy = y + 70;
-      sketchCircle(ctx, cx, cy, 56, seed + i, i === 2 ? '#FFE58A' : '#FFFFFF');
-      ctx.font = `400 ${label.length > 2 ? 30 : 36}px ${T}`; ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(label, cx, cy + 2); ctx.textAlign = 'left';
+    const box = moaAt('center', 0.3);
+    if (box) sfx(ctx, card.moaSays, box.x + box.w + 120, box.y + 40, 46);
+    footer('center');
+  } else if (layout === 'cta') {
+    const y = bigTitle(card.title, 130, 3, 90) + 30;
+    ['저장', '공유', '팔로우'].forEach((label, i) => {
+      const cx = SIZE / 2 + (i - 1) * 210;
+      sketchCircle(ctx, cx, y + 70, 62, seed + i, i === 2 ? accent : '#FFFFFF', '#1E1E1E', 4.5);
+      ctx.font = `400 ${label.length > 2 ? 36 : 42}px ${T}`; ctx.fillStyle = i === 2 ? '#FFFFFF' : ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, y + 72); ctx.textAlign = 'left';
     });
-    ctx.font = `400 44px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(settings.handle, SIZE / 2, y + 190); ctx.textAlign = 'left';
+    ctx.font = `400 48px ${T}`; ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(settings.handle, SIZE / 2, y + 200); ctx.textAlign = 'left';
+    const box = moaAt('center', 0.4);
+    if (box) comicBubble(ctx, card.moaSays || card.body, { cx: box.x - 40, cy: box.y + box.h * 0.25, maxW: 300, size: 46, target: head(box), fill: bubbleFill, seed });
+  } else if (layout === 'number' && card.number) {
+    let y = bigTitle(card.title, 96, 2, 80) + 20;
+    const r = fit(ctx, card.number, { family: T, weight: 400, max: 280, min: 120, maxLines: 1, widthAt: () => W });
+    ctx.font = `700 ${r.size}px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(card.number, SIZE / 2, y + r.size * 0.92);
+    y += r.size;
+    if (card.numberLabel) { ctx.font = `400 50px ${T}`; ctx.fillStyle = ink; ctx.fillText(card.numberLabel, SIZE / 2, y + 40); y += 70; }
+    ctx.textAlign = 'left';
+    const box = moaAt(side, 0.36);
+    if (box) comicBubble(ctx, card.body || card.moaSays, { cx: side === 'right' ? box.x - 40 : box.x + box.w + 40, cy: Math.max(y + 120, box.y + box.h * 0.2), maxW: 460, size: 48, target: head(box), fill: bubbleFill, seed });
+    footer(side);
   } else {
-    // 설명형·큰 제목·키워드: 제목을 위쪽 가운데에 크게, 본문은 손그림 박스
-    const avail = bottom - y;
-    const titleEnd = titleBlock(card.title, card.body ? 96 : 120, 3, y + (card.body ? 10 : Math.max(0, avail * 0.18)));
-    if (card.body) bodyBlock(card.body, titleEnd + 44, bottom - titleEnd - 44);
+    // 설명형: 큰 제목 + 모아가 말풍선으로 설명
+    const y = bigTitle(card.title, card.body ? 116 : 150, 3, 80);
+    const box = moaAt(side, card.body ? 0.42 : 0.48);
+    if (box) {
+      const bubbleTop = y + 30;
+      const target = head(box);
+      if (card.body) {
+        comicBubble(ctx, card.body, { cx: SIZE / 2, cy: bubbleTop + 140, maxW: 640, size: 52, target, fill: bubbleFill, seed });
+        if (card.moaSays) sfx(ctx, card.moaSays, side === 'right' ? box.x - 30 : box.x + box.w + 30, box.y + box.h * 0.45, 46, side === 'right' ? -0.1 : 0.1);
+      } else {
+        comicBubble(ctx, card.moaSays, { cx: side === 'right' ? box.x - 40 : box.x + box.w + 40, cy: box.y + box.h * 0.3, maxW: 380, size: 48, target, fill: bubbleFill, seed });
+      }
+    } else if (card.body) {
+      comicBubble(ctx, card.body, { cx: SIZE / 2, cy: y + 200, maxW: 760, size: 54, fill: bubbleFill, seed });
+    }
+    footer(side);
   }
-
-  // 모아 + 말풍선
-  if (showMoa) {
-    drawMoa(ctx, env, { ...card, style: { ...st, moaFlip: mpos === 'bl' ? !st.moaFlip : st.moaFlip } }, box, t, B);
-    if (!isCta || card.moaSays) drawToonBubble(ctx, card.moaSays, box, mpos === 'bl' ? 'left' : 'right');
-  }
-  // 하단 계정 / 출처
-  ctx.font = `600 22px ${B}`; ctx.fillStyle = '#ABABAB'; ctx.textBaseline = 'alphabetic';
-  const foot = index === 1 && content.sources?.length ? `출처: ${content.sources.map((x) => x.name).filter(Boolean).slice(0, 2).join(', ')}` : settings.handle;
-  if (mpos === 'bl') { ctx.textAlign = 'right'; ctx.fillText(foot, SIZE - 64, H - 40); ctx.textAlign = 'left'; } else ctx.fillText(foot, 64, H - 40);
 }
 
 // ---------------------------------------------------------------------
