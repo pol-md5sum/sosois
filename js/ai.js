@@ -7,15 +7,60 @@ export const PROVIDERS = {
 };
 
 export const CATEGORIES = {
-  NEWS: { label: 'MOA NEWS', emoji: '📰' },
-  TREND: { label: 'MOA TREND', emoji: '🔥' },
-  AI: { label: 'MOA AI', emoji: '🤖' },
-  LIFE: { label: 'MOA LIFE', emoji: '🏠' },
-  MONEY: { label: 'MOA MONEY', emoji: '💰' },
-  FOOD: { label: 'MOA FOOD', emoji: '🍙' },
-  BEAUTY: { label: 'MOA BEAUTY', emoji: '💄' },
-  CULTURE: { label: 'MOA CULTURE', emoji: '🎬' },
-  SHOPPING: { label: 'MOA SHOPPING', emoji: '🛍️' },
+  NEWS: {
+    label: 'MOA NEWS', emoji: '📰', name: '오늘의 뉴스', color: '#6F6258',
+    desc: '오늘 꼭 알아야 할 사회·정책 뉴스',
+    guide: '정책·사회 뉴스. 누가·언제·무엇을 정확히, 정치적 입장은 중립으로. 정부·공공기관 발표를 우선 출처로.',
+    tags: ['오늘의뉴스', '뉴스요약', '시사상식', '이슈정리'],
+  },
+  TREND: {
+    label: 'MOA TREND', emoji: '🔥', name: '요즘 트렌드', color: '#E8837E',
+    desc: '지금 SNS에서 뜨는 화제와 유행',
+    guide: '화제·유행. "왜 다들 이걸 하는지"를 중심으로, 유행의 시작·확산 경로를 쉽게. 과장된 "대란" 표현은 사실일 때만.',
+    tags: ['요즘트렌드', '유행', '핫이슈', 'MZ트렌드'],
+  },
+  AI: {
+    label: 'MOA AI', emoji: '🤖', name: 'AI·테크', color: '#7FA3C8',
+    desc: 'AI와 테크 소식을 쉬운 말로',
+    guide: 'AI·테크. 전문용어는 반드시 일상 비유로 풀고, "내 일·생활에서 어떻게 쓰는지" 예시를 넣는다. 성능 과장 금지.',
+    tags: ['AI뉴스', '인공지능', '테크트렌드', 'AI활용'],
+  },
+  LIFE: {
+    label: 'MOA LIFE', emoji: '🏠', name: '생활 정보', color: '#8FB58A',
+    desc: '물가·날씨·건강 등 생활에 바로 쓰는 정보',
+    guide: '생활 정보. 신청 방법·기간·대상 같은 실용 정보를 LIFE/CHECK에 구체적으로. 건강 정보는 의료 조언처럼 단정하지 말 것.',
+    tags: ['생활정보', '꿀팁', '알아두면좋은정보', '생활꿀팁'],
+  },
+  MONEY: {
+    label: 'MOA MONEY', emoji: '💰', name: '머니·재테크', color: '#D9A441',
+    desc: '금리·세금·재테크를 내 지갑 기준으로',
+    guide: '돈·재테크. 숫자(금리, 금액, 기간)는 정확히 표기하고 출처 확인. 특정 상품·종목 매수 권유 금지, "투자 판단은 본인 책임" 뉘앙스 유지.',
+    tags: ['재테크', '경제뉴스', '돈공부', '월급관리'],
+  },
+  FOOD: {
+    label: 'MOA FOOD', emoji: '🍙', name: '푸드', color: '#E9A06B',
+    desc: '신메뉴·맛집·먹거리 트렌드',
+    guide: '음식. 출시일·가격·판매처 등 확인된 정보 위주로, 맛 평가는 의견임을 표시. 광고처럼 보이지 않게.',
+    tags: ['신메뉴', '편의점신상', '먹스타그램', '디저트'],
+  },
+  BEAUTY: {
+    label: 'MOA BEAUTY', emoji: '💄', name: '뷰티', color: '#E4A1B9',
+    desc: '화장품·스킨케어 트렌드와 소비 정보',
+    guide: '뷰티. 효능을 단정하거나 의학적 효과를 주장하지 말 것(화장품법 표시·광고 기준 유의). 성분은 쉽게 풀어서.',
+    tags: ['뷰티트렌드', '화장품추천', '스킨케어', '뷰티꿀팁'],
+  },
+  CULTURE: {
+    label: 'MOA CULTURE', emoji: '🎬', name: '컬처', color: '#9C8CC4',
+    desc: '드라마·영화·전시·공연 소식',
+    guide: '문화. 결말 등 스포일러 금지, 공개일·장소·예매 정보는 정확히. 출연자 사생활 언급 금지.',
+    tags: ['문화생활', '전시추천', '드라마추천', '주말뭐하지'],
+  },
+  SHOPPING: {
+    label: 'MOA SHOPPING', emoji: '🛍️', name: '쇼핑', color: '#6FB3A8',
+    desc: '할인·신상·쇼핑 이슈 정리',
+    guide: '쇼핑. 할인율·기간·조건을 정확히, 특정 판매처 홍보처럼 쓰지 말 것. 가격은 변동될 수 있음을 알린다.',
+    tags: ['쇼핑정보', '할인정보', '신상', '쇼핑꿀팁'],
+  },
 };
 
 export const CARD_TYPES = ['HOOK', 'WHAT', 'WHY', 'SO WHAT', "MOA'S PICK", 'LIFE/CHECK', 'CTA'];
@@ -130,7 +175,10 @@ export function buildContentPrompt(news, opts = {}) {
   const lines = [];
   lines.push('아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
   lines.push('');
-  lines.push(`카테고리 후보: ${news.category || 'NEWS'} (더 맞는 카테고리가 있으면 바꿔도 됨: ${Object.keys(CATEGORIES).join(', ')})`);
+  const cat = CATEGORIES[news.category] || CATEGORIES.NEWS;
+  lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
+  lines.push(`이 카테고리 작성 원칙: ${cat.guide}`);
+  lines.push(`기본 해시태그 후보: ${['모아뉴스', ...cat.tags].join(', ')}`);
   lines.push(`제목: ${news.title}`);
   if (news.publishedAt) lines.push(`기사 날짜: ${news.publishedAt}`);
   if (news.summary) lines.push(`요약: ${news.summary}`);
@@ -338,7 +386,7 @@ export function templateContent(news) {
     moaComment: '어려운 뉴스, 모아가 쉽게 알려줄게요!',
     cta: '저장하고 친구에게도 공유해 주세요',
     caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 @moa 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
-    hashtags: ['모아뉴스', '카드뉴스', '오늘의뉴스', '뉴스요약', '이슈정리', kw, '정보공유', '트렌드'],
+    hashtags: ['모아뉴스', '카드뉴스', ...CATEGORIES[cat].tags, kw, '정보공유'],
     sources: [],
     factNotes: ['템플릿 모드로 생성되어 기사 내용이 충분히 반영되지 않았습니다. 본문을 직접 수정해 주세요.'],
   };

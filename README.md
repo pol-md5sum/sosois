@@ -10,6 +10,7 @@
 
 | 기능 | 설명 |
 |---|---|
+| 주제별 콘텐츠 | 기획안 9개 카테고리(NEWS·TREND·AI·LIFE·MONEY·FOOD·BEAUTY·CULTURE·SHOPPING)별 뉴스, 주제별 작성 원칙·해시태그·카드 색상, 주제 1위/TOP 3 바로 만들기 |
 | 오늘의 뉴스 | Google 뉴스 RSS(9개 카테고리)를 3시간마다 수집 → 같은 사건끼리 묶고 MOA 적합도로 정렬 |
 | 트렌드 | Google 트렌드 한국 실시간 검색어 + 관련 기사 |
 | AI 원고 | GPT / Gemini / Claude 중 선택, 7장 구조(HOOK·WHAT·WHY·SO WHAT·MOA'S PICK·LIFE/CHECK·CTA), 웹 검색 사실 확인 옵션 |

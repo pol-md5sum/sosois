@@ -379,8 +379,10 @@ export async function renderCard(canvas, content, index, env) {
   ctx.font = `800 30px ${family}`;
   const catText = cat.label;
   const cw = ctx.measureText(catText).width + 48;
-  ctx.fillStyle = t.brown; roundRect(ctx, PAD, 58, cw, 56, 28); ctx.fill();
-  ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle'; ctx.fillText(catText, PAD + 24, 88);
+  // 주제별 색 (뉴스는 브랜드 브라운)
+  const catColor = content.category === 'NEWS' || !cat.color ? t.brown : cat.color;
+  ctx.fillStyle = catColor; roundRect(ctx, PAD, 58, cw, 56, 28); ctx.fill();
+  ctx.fillStyle = catColor === t.brown ? '#FFFFFF' : '#3F3530'; ctx.textBaseline = 'middle'; ctx.fillText(catText, PAD + 24, 88);
   ctx.font = `700 30px ${family}`; ctx.fillStyle = t.brown; ctx.textAlign = 'right';
   ctx.fillText(`${String(index + 1).padStart(2, '0')} / ${String(content.cards.length).padStart(2, '0')}`, SIZE - PAD, 88);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -471,21 +473,39 @@ function layBig(ctx, card, y, o) {
 }
 
 function layText(ctx, card, y, o) {
-  const { t, textColor } = o;
+  const { t, textColor, family, fontScale } = o;
   let yy = block(ctx, card.title, y, o, { weight: 800, max: 78, min: 50, maxLines: 3, lh: 1.24, color: textColor, hl: card.highlight, hlColor: t.pink });
   if (!card.body) return;
   yy += 36;
-  // 본문 카드 (흰 박스) — 높이를 먼저 계산
-  const inner = { ...o, span: (a, b) => { const s = o.span(a, b); return { l: s.l + 40, r: s.r - 40, w: s.w - 80 }; } };
-  const off = document.createElement('canvas').getContext('2d');
-  const endY = block(off, card.body, yy + 40, inner, { weight: 500, max: 46, min: 32, maxLines: 6, lh: 1.5, color: textColor });
-  const sp = o.span(yy, endY + 40);
+  // 본문 흰 박스: 박스가 차지할 높이 전체에서 쓸 수 있는 폭으로 줄바꿈한 뒤, 실제 글자 크기에 맞춰 박스를 줄인다
+  const PADX = 40;
+  const PADY = 34;
+  const lh = 1.5;
+  let boxW = o.span(yy, yy + 500).w;
+  let r;
+  for (let pass = 0; pass < 3; pass++) {
+    const innerW = boxW - PADX * 2;
+    r = fit(ctx, card.body, { family, weight: 500, max: Math.round(46 * fontScale), min: Math.round(30 * fontScale), maxLines: 6, widthAt: () => innerW });
+    const h = PADY * 2 + (r.lines.length - 1) * r.size * lh + r.size * 1.2;
+    const w = o.span(yy, yy + h).w;
+    if (w === boxW) break;
+    boxW = w;
+  }
+  ctx.font = `500 ${r.size}px ${family}`;
+  const textW = Math.max(...r.lines.map((ln) => ctx.measureText(card.body.slice(ln.start, ln.end)).width));
+  const w = Math.min(boxW, Math.ceil(textW) + PADX * 2);
+  const h = PADY * 2 + (r.lines.length - 1) * r.size * lh + r.size * 1.2;
+  const x = o.span(yy, yy + h).l;
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
   ctx.shadowColor = 'rgba(111,98,88,0.10)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
-  roundRect(ctx, sp.l, yy, sp.w, endY - yy + 40, 36); ctx.fill();
+  roundRect(ctx, x, yy, w, h, 36); ctx.fill();
   ctx.restore();
-  block(ctx, card.body, yy + 40, inner, { weight: 500, max: 46, min: 32, maxLines: 6, lh: 1.5, color: textColor, hl: card.highlight, hlColor: 'transparent', hlText: '#D9706B' });
+  ctx.font = `500 ${r.size}px ${family}`;
+  drawLines(ctx, card.body, r.lines, {
+    x: x + PADX, y: yy + PADY - r.size * 0.12, size: r.size, lh, color: textColor,
+    hl: card.highlight, hlColor: 'transparent', hlText: '#D9706B', widthAt: () => w - PADX * 2,
+  });
 }
 
 function layList(ctx, card, y, o) {
