@@ -54,11 +54,23 @@ async function loadNews() {
     const res = await fetch(`data/news.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
     NEWS = await res.json();
+    const ov = getCatOverrides();
+    NEWS.items.forEach((n) => { n.autoCategory = n.category; if (ov[newsKey(n)]) n.category = ov[newsKey(n)]; });
   } catch {
     NEWS = { generatedAt: null, items: [], trends: [], errors: ['뉴스 데이터를 아직 만들지 않았습니다.'] };
   }
   return NEWS;
 }
+// 사용자가 바꾼 뉴스 주제 (다음 수집 때도 유지되도록 기사 링크 기준으로 저장)
+const newsKey = (n) => n.url || n.title;
+function getCatOverrides() { try { return JSON.parse(localStorage.getItem('moa.catOverride')) || {}; } catch { return {}; } }
+function setCatOverride(n, cat) {
+  const ov = getCatOverrides();
+  if (cat === n.autoCategory) delete ov[newsKey(n)]; else ov[newsKey(n)] = cat;
+  try { localStorage.setItem('moa.catOverride', JSON.stringify(ov)); } catch { /* 저장 공간 부족 시 이번 화면에서만 반영 */ }
+  n.category = cat;
+}
+const catSelect = (cur, attrs) => `<select class="cat-select" ${attrs} aria-label="주제 변경">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v.emoji} ${esc(v.label)}</option>`).join('')}</select>`;
 const findNews = (id) => NEWS?.items.find((n) => n.id === id);
 
 let ENV = null;
@@ -101,7 +113,7 @@ const SCORE_LABEL = { recency: '최근성', buzz: '화제성', sns: 'SNS 확산'
 function newsCard(n) {
   const scores = n.scores ? Object.entries(SCORE_LABEL).map(([k, l]) => `<span>${l}</span><div class="meter"><i style="width:${n.scores[k] || 0}%"></i></div><span>${n.scores[k] || 0}</span>`).join('') : '';
   return `<article class="panel news">
-    <div class="row">${catChip(n.category)}<span class="spacer"></span><span class="small muted">${esc(fmtDate(n.publishedAt))}</span></div>
+    <div class="row" style="flex-wrap:nowrap">${catSelect(n.category, `data-recat="${esc(n.id)}" style="--c:${(CATEGORIES[n.category] || CATEGORIES.NEWS).color}"`)}${n.autoCategory && n.autoCategory !== n.category ? '<span class="small muted">직접 변경</span>' : ''}<span class="spacer"></span><span class="small muted">${esc(fmtDate(n.publishedAt))}</span></div>
     <h3><a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a></h3>
     ${n.summary ? `<p class="small muted" style="margin:0">${esc(n.summary)}</p>` : ''}
     <div class="small muted">출처: ${esc((n.outlets || [n.source]).filter(Boolean).slice(0, 4).join(', '))}${n.outlets?.length > 4 ? ` 외 ${n.outlets.length - 4}곳` : ''}</div>
@@ -113,6 +125,13 @@ function newsCard(n) {
   </article>`;
 }
 function bindMake(root) {
+  $$('[data-recat]', root).forEach((sel) => sel.addEventListener('change', () => {
+    const n = findNews(sel.dataset.recat);
+    if (!n) return;
+    setCatOverride(n, sel.value);
+    toast(`주제를 ${CATEGORIES[sel.value].label}(으)로 바꿨어요.`);
+    route();
+  }));
   $$('[data-make]', root).forEach((b) => b.addEventListener('click', () => {
     const n = findNews(b.dataset.make);
     if (!n) return;
@@ -358,6 +377,8 @@ async function generateContent(news, provider, opts = {}) {
     });
     body = normalizeContent(extractJson(text), news);
   }
+  // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다
+  if (CATEGORIES[news.category]) body.category = news.category;
   return {
     id: newId(),
     createdAt: new Date().toISOString(),
@@ -492,6 +513,7 @@ async function editorView(id) {
   <div class="row" style="margin-bottom:14px">
     <input type="text" id="e-title" value="${esc(c.title)}" style="max-width:520px;font-weight:800;font-size:18px">
     <select id="e-status">${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}" ${k === c.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <label class="small" for="e-cat" style="font-weight:700;color:var(--brown)">주제</label>
     <select id="e-cat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${v.emoji} ${v.label}</option>`).join('')}</select>
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
     <span class="spacer"></span>
@@ -680,13 +702,14 @@ async function contentsView() {
       <tr><th>제목</th><th>카테고리</th><th>AI 모델</th><th>상태</th><th>생성일</th><th></th></tr>
       ${rows.map((c) => `<tr>
         <td><a href="#/editor/${c.id}"><b>${esc(c.title)}</b></a><div class="small muted">${esc(c.news?.source || '')}</div></td>
-        <td>${catChip(c.category)}</td>
+        <td>${catSelect(c.category, `data-cc="${c.id}"`)}</td>
         <td class="small">${esc(PROVIDERS[c.model]?.label || '템플릿')}<div class="muted">${esc(c.modelName || '')}</div></td>
         <td><select data-st="${c.id}">${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}" ${k === c.status ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
         <td class="small">${esc(new Date(c.createdAt).toLocaleString('ko-KR'))}</td>
         <td><div class="row"><a class="btn sm" href="#/editor/${c.id}">열기</a><button class="btn sm" data-zip="${c.id}">ZIP</button><button class="btn sm danger" data-del="${c.id}">삭제</button></div></td>
       </tr>`).join('')}</table></div>`
       : '<div class="panel empty"><img src="assets/moa/moa.png" alt=""><p>아직 만든 콘텐츠가 없어요.</p><a class="btn primary" href="#/news">뉴스 고르러 가기</a></div>';
+    $$('[data-cc]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.cc); c.category = s.value; saveContent(c); toast(`주제: ${CATEGORIES[c.category].label}`); }));
     $$('[data-st]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.st); c.status = s.value; saveContent(c); toast(`상태: ${STATUSES[c.status]}`); }));
     $$('[data-del]').forEach((b) => b.addEventListener('click', () => { if (confirm('이 콘텐츠를 삭제할까요?')) { deleteContent(b.dataset.del); draw(); } }));
     $$('[data-zip]').forEach((b) => b.addEventListener('click', async () => {

@@ -1,7 +1,7 @@
 // 네트워크 없이 파서·점수·정규화를 점검한다: node scripts/selftest.mjs
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import { parseRss, cluster, scoreCluster, classify, selectBalanced } from './fetch-news.mjs';
+import { parseRss, cluster, scoreCluster, classify, selectBalanced, hardNewsOverride } from './fetch-news.mjs';
 import { normalizeContent, templateContent, extractJson, heuristicScore, buildContentPrompt, CARD_TYPES } from '../js/ai.js';
 
 const xml = await readFile(new URL('./fixtures/gnews.xml', import.meta.url), 'utf8');
@@ -44,4 +44,7 @@ assert.equal(classify('국회 본회의 개최'), 'NEWS');
 const pool = [...Array(30)].map((_, i) => ({ category: i < 25 ? 'NEWS' : 'BEAUTY', moaScore: 100 - i }));
 const bal = selectBalanced(pool, 3, 6);
 assert.equal(bal.filter((x) => x.category === 'BEAUTY').length, 3, '점수가 낮아도 주제별 최소 개수 보장');
+assert.equal(hardNewsOverride("'개인정보 유출' 쿠팡, 6200억대 과징금 불복해 소송 제기", 'SHOPPING'), 'NEWS');
+assert.equal(hardNewsOverride('쿠팡 블랙프라이데이 최대 70% 할인', 'SHOPPING'), 'SHOPPING');
+assert.equal(hardNewsOverride('한은 기준금리 동결 논란', 'MONEY'), 'MONEY');
 console.log('selftest OK');

@@ -120,6 +120,16 @@ export function classify(title, fallback = 'NEWS', only = null) {
   return best;
 }
 
+// 사건·사고·법적 분쟁·제재 성격의 기사는 브랜드 이름(쿠팡, 올리브영 등)이 들어 있어도 생활·쇼핑 주제가 아니라 뉴스로 본다
+export const HARD_NEWS_KW = ['개인정보', '유출', '해킹', '과징금', '소송', '제재', '수사', '압수수색', '기소', '판결', '법원', '공정위', '공정거래위원회', '고발', '징계', '사고', '화재', '사망', '부상', '리콜', '불매', '노조', '파업', '갑질', '논란', '의혹', '피해자', '집단소송', '청문회', '국정감사'];
+const LIFESTYLE = ['SHOPPING', 'FOOD', 'BEAUTY', 'CULTURE', 'LIFE', 'TREND'];
+export function hardNewsOverride(text, category) {
+  const hits = HARD_NEWS_KW.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
+  if (LIFESTYLE.includes(category) && hits >= 1) return 'NEWS';
+  if ((category === 'MONEY' || category === 'AI') && hits >= 2) return 'NEWS';
+  return category;
+}
+
 // 주제마다 최소 perCat개를 보장하고 나머지는 점수순으로 채운다
 export function selectBalanced(items, perCat = 12, total = 140) {
   const out = [];
@@ -207,6 +217,7 @@ async function main() {
     const specific = [...c.categories].filter((k) => k !== 'NEWS');
     // 여러 주제 피드에 함께 걸리면 키워드가 가장 많이 맞는 주제로, 종합 피드만이면 키워드로 분류
     c.category = specific.length > 1 ? classify(text, specific[0], specific) : specific[0] || classify(text);
+    c.category = hardNewsOverride(c.title, c.category);
   }
   let items = clusters.map((c, i) => {
     const { scores, moaScore, buzzScore } = scoreCluster(c, now);

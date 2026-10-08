@@ -163,3 +163,5 @@ td select { width: auto; padding: 5px 8px; }
 .tabs a.on { background: var(--c); border-color: var(--c); color: var(--ink); }
 .tabs a.on span { color: var(--ink); }
 .topic-head { border-left: 6px solid var(--c); }
+
+.cat-select { width: auto !important; padding: 3px 8px !important; border-radius: 999px !important; font-size: 12px; font-weight: 700; color: var(--brown); background: color-mix(in srgb, var(--c, #C9D8C0) 18%, #fff) !important; border-color: transparent !important; cursor: pointer; }

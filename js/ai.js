@@ -176,7 +176,7 @@ export function buildContentPrompt(news, opts = {}) {
   lines.push('아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
   lines.push('');
   const cat = CATEGORIES[news.category] || CATEGORIES.NEWS;
-  lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 더 맞는 카테고리가 있으면 바꿔도 됨: ${Object.keys(CATEGORIES).join(', ')}`);
+  lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
   lines.push(`이 카테고리 작성 원칙: ${cat.guide}`);
   lines.push(`기본 해시태그 후보: ${['모아뉴스', ...cat.tags].join(', ')}`);
   lines.push(`제목: ${news.title}`);
