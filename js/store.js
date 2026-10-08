@@ -15,16 +15,18 @@ export const DEFAULT_SETTINGS = {
   models: Object.fromEntries(Object.entries(PROVIDERS).map(([k, p]) => [k, p.defaultModel])),
   webSearch: false,
   font: 'Pretendard',
-  handle: '@moa.studio',
+  handle: '@moa.story',
   brand: 'MOA | 모아',
   theme: { bg: '#FFF9F0', brown: '#6F6258', pink: '#F5B8B5', green: '#C9D8C0' },
   format: '1080x1350',
   imageProvider: 'gpt',
+  autoCover: true, // 콘텐츠를 만들면 첫 장 실사 배경을 AI로 자동 생성
   imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
 
 export function getSettings() {
   const s = read(K.settings, {});
+  if (s.handle === '@moa.studio' || s.handle === '@moa') s.handle = '@moa.story'; // 이전 기본값 정리
   return { ...DEFAULT_SETTINGS, ...s, models: { ...DEFAULT_SETTINGS.models, ...(s.models || {}) }, imageModels: { ...DEFAULT_SETTINGS.imageModels, ...(s.imageModels || {}) }, theme: { ...DEFAULT_SETTINGS.theme, ...(s.theme || {}) } };
 }
 export const saveSettings = (s) => write(K.settings, s);

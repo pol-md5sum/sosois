@@ -193,7 +193,7 @@ export function buildContentPrompt(news, opts = {}) {
   lines.push('아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
   lines.push('');
   const cat = CATEGORIES[news.category] || CATEGORIES.NEWS;
-  if (!opts.fromUrl || news.category) lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
+  if ((!opts.fromUrl && !opts.images?.length) || news.category) lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
   lines.push(`이 카테고리 작성 원칙: ${cat.guide}`);
   lines.push(`기본 해시태그 후보: ${['모아뉴스', ...cat.tags].join(', ')}`);
   if (news.title) lines.push(`제목: ${news.title}`);
@@ -222,6 +222,12 @@ export function buildContentPrompt(news, opts = {}) {
     lines.push('');
     lines.push('제공된 정보 밖의 구체적 수치나 인용은 지어내지 말고, 일반적인 배경 설명 수준으로만 보충해.');
   }
+  if (opts.images?.length) {
+    lines.push('');
+    lines.push(`첨부 이미지 ${opts.images.length}장은 사용자가 캡처한 기사 화면이다. 이미지 속 기사 내용(제목, 언론사, 날짜, 본문)을 읽고 그 내용만 근거로 작성해. 읽기 어려운 부분은 지어내지 말고 factNotes에 적어.`);
+    if (!news.category) lines.push(`category는 기사 내용에 가장 맞는 것으로 골라: ${TOPIC_KEYS().join(', ')} (사건·사고·소송·제재는 NEWS).`);
+  }
+  if (opts.handle) lines.push(`캡션의 팔로우 문구는 반드시 "🐑 ${opts.handle} 팔로우하고 매일 쉬운 뉴스 받기"로 쓴다.`);
   if (opts.extra) lines.push(`추가 요청: ${opts.extra}`);
   lines.push('');
   lines.push('출력은 아래 JSON 스키마를 따르는 JSON 객체 하나만. 코드블록이나 설명 문장 없이.');
@@ -254,7 +260,7 @@ async function httpJson(fetchImpl, url, init) {
   return data;
 }
 
-async function callClaude({ apiKey, model, system, prompt, schema, webSearch, fetchUrl, maxTokens, fetchImpl, browser }) {
+async function callClaude({ apiKey, model, system, prompt, images, schema, webSearch, fetchUrl, maxTokens, fetchImpl, browser }) {
   const headers = {
     'content-type': 'application/json',
     'x-api-key': apiKey,
@@ -265,7 +271,12 @@ async function callClaude({ apiKey, model, system, prompt, schema, webSearch, fe
     model,
     max_tokens: maxTokens || 16000,
     system,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{
+      role: 'user',
+      content: images?.length
+        ? [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })), { type: 'text', text: prompt }]
+        : prompt,
+    }],
     output_config: { effort: 'medium' },
   };
   if (webSearch || fetchUrl) {
@@ -290,12 +301,17 @@ async function callClaude({ apiKey, model, system, prompt, schema, webSearch, fe
   return (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
-async function callGpt({ apiKey, model, system, prompt, webSearch, fetchUrl, fetchImpl }) {
+async function callGpt({ apiKey, model, system, prompt, images, webSearch, fetchUrl, fetchImpl }) {
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` };
   if (webSearch || fetchUrl) {
     const data = await httpJson(fetchImpl, 'https://api.openai.com/v1/responses', {
       method: 'POST', headers,
-      body: JSON.stringify({ model, instructions: system, input: prompt, tools: [{ type: 'web_search' }] }),
+      body: JSON.stringify({
+        model, instructions: system, tools: [{ type: 'web_search' }],
+        input: images?.length
+          ? [{ role: 'user', content: [...images.map((im) => ({ type: 'input_image', image_url: `data:${im.mime};base64,${im.data}` })), { type: 'input_text', text: prompt }] }]
+          : prompt,
+      }),
     });
     if (data.output_text) return data.output_text;
     return (data.output || []).flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('');
@@ -304,17 +320,22 @@ async function callGpt({ apiKey, model, system, prompt, webSearch, fetchUrl, fet
     method: 'POST', headers,
     body: JSON.stringify({
       model,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: system }, {
+        role: 'user',
+        content: images?.length
+          ? [...images.map((im) => ({ type: 'image_url', image_url: { url: `data:${im.mime};base64,${im.data}` } })), { type: 'text', text: prompt }]
+          : prompt,
+      }],
       response_format: { type: 'json_object' },
     }),
   });
   return data.choices?.[0]?.message?.content || '';
 }
 
-async function callGemini({ apiKey, model, system, prompt, webSearch, fetchUrl, fetchImpl }) {
+async function callGemini({ apiKey, model, system, prompt, images, webSearch, fetchUrl, fetchImpl }) {
   const body = {
     systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts: [...(images || []).map((im) => ({ inlineData: { mimeType: im.mime, data: im.data } })), { text: prompt }] }],
     generationConfig: {},
   };
   if (webSearch || fetchUrl) {
@@ -410,7 +431,7 @@ export function normalizeContent(raw, news = {}) {
 }
 
 // ---------- 템플릿 모드 (AI 키가 없을 때) ----------
-export function templateContent(news) {
+export function templateContent(news, { handle = '@moa.story' } = {}) {
   const title = (news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
   const short = title.length > 26 ? `${title.slice(0, 24)}…` : title;
   // 대표 기사와 같은 내용(따옴표·언론사 표기만 다른 제목)은 관련 보도에서 뺀다
@@ -433,7 +454,7 @@ export function templateContent(news) {
     ],
     moaComment: '어려운 뉴스, 모아가 쉽게 알려줄게요!',
     cta: '저장하고 친구에게도 공유해 주세요',
-    caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 @moa 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
+    caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 ${handle} 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
     hashtags: ['모아뉴스', '카드뉴스', ...CATEGORIES[cat].tags, kw, '정보공유'],
     sources: [],
     factNotes: ['템플릿 모드로 생성되어 기사 내용이 충분히 반영되지 않았습니다. 본문을 직접 수정해 주세요.'],
@@ -509,6 +530,24 @@ export function buildImagePrompt(content) {
     'Composition: keep the top 45% calm, simple and low-detail so a big headline can sit on it; place the main objects in the lower half and the sides.',
     'Strictly no text, no letters, no numbers, no logos, no brand marks, no real people or faces.',
   ].join('\n');
+}
+
+// 첫 장 커버용: 실제 사진 같은 매거진 스타일 배경
+export function buildCoverPrompt(content) {
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  const topic = content.news?.title || content.title || cat.desc;
+  const hook = content.cards?.[0]?.title?.replace(/\n/g, ' ') || '';
+  return [
+    'A photorealistic editorial photograph for the cover of a trendy Korean Instagram magazine card post (portrait).',
+    `News topic: ${topic}`,
+    hook ? `Headline mood: ${hook}` : '',
+    `Category: ${cat.desc}.`,
+    'Show a concrete, relatable everyday scene or object that instantly suggests this topic (e.g. objects on a desk, a street, a shop shelf, a phone screen glow, food close-up).',
+    'Style: candid 35mm film photo, natural light, soft grain, slightly muted warm tones, shallow depth of field, like a modern Korean lifestyle magazine.',
+    'Composition: the bottom 40% should be simpler and darker so white headline text can sit there.',
+    'People only from behind, cropped, or out of focus — no identifiable faces, no real celebrities or politicians.',
+    'Strictly no text, letters, numbers, logos, watermarks or brand marks anywhere in the image.',
+  ].filter(Boolean).join('\n');
 }
 
 export async function generateImage(provider, { apiKey, model, prompt, aspect = '4:5', fetchImpl = globalThis.fetch.bind(globalThis) }) {

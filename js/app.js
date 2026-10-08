@@ -1,7 +1,7 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, IMAGE_PROVIDERS, TOPIC_KEYS,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
@@ -108,6 +108,18 @@ async function shrinkToBlob(src) {
   cv.width = w; cv.height = h;
   cv.getContext('2d').drawImage(img, 0, 0, w, h);
   return new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.88));
+}
+
+// AI에 보낼 캡처 이미지: 긴 변 1600px 이하 JPEG로 줄인다
+async function imageForAI(file) {
+  const img = await loadImage(URL.createObjectURL(file));
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  return { mime: 'image/jpeg', data: cv.toDataURL('image/jpeg', 0.85).split(',')[1] };
 }
 
 function setDraftNews(n) { sessionStorage.setItem('moa.draftNews', JSON.stringify(n)); }
@@ -330,6 +342,14 @@ async function createView() {
       <input type="url" id="u-url" placeholder="https://n.news.naver.com/... 또는 언론사 기사 주소" style="flex:1">
       <button class="btn primary" id="u-go">이 기사로 만들기</button>
     </div>
+    <h3 style="margin-top:18px">📸 기사 캡처 이미지로 만들기</h3>
+    <p class="small muted" style="margin:0 0 10px">기사 화면을 캡처해서 올리면(여러 장 가능) AI가 이미지 속 글을 읽고 만들어요. 앱에서 기사를 열 수 없거나 유료 기사일 때 편해요. 붙여넣기(Ctrl+V)도 돼요.</p>
+    <div class="row">
+      <label class="btn">🖼️ 이미지 첨부<input type="file" id="u-img" accept="image/*" multiple hidden></label>
+      <button class="btn primary" id="u-img-go" disabled>캡처 이미지로 만들기</button>
+      <span class="small muted" id="u-img-count"></span>
+    </div>
+    <div class="shots" id="u-shots"></div>
   </section>
   <div class="row" style="margin:14px 0"><span class="small muted">또는 아래에 뉴스 정보를 직접 채워서 만들기</span><span class="spacer"></span><button class="btn sm pink" id="c-intro">🐑 첫 게시물 (모아 소개) 만들기</button></div>
   <div class="editor" style="grid-template-columns:minmax(0,1fr) 360px">
@@ -384,6 +404,35 @@ async function createView() {
     return nn;
   };
   $('#c-intro').addEventListener('click', createIntro);
+  // 기사 캡처 이미지 첨부
+  const shots = [];
+  const drawShots = () => {
+    $('#u-shots').innerHTML = shots.map((sh, i) => `<figure><img src="data:${sh.mime};base64,${sh.data}" alt="첨부 ${i + 1}"><button type="button" class="btn sm" data-rm-shot="${i}" aria-label="삭제">✕</button></figure>`).join('');
+    $('#u-img-go').disabled = !shots.length;
+    $('#u-img-count').textContent = shots.length ? `${shots.length}장 첨부됨 (최대 8장)` : '';
+    $$('[data-rm-shot]').forEach((b) => b.addEventListener('click', () => { shots.splice(+b.dataset.rmShot, 1); drawShots(); }));
+  };
+  const addFiles = async (files) => {
+    for (const f of files) {
+      if (!f.type.startsWith('image/') || shots.length >= 8) continue;
+      try { shots.push(await imageForAI(f)); } catch { toast('이미지를 읽지 못했어요.', true); }
+    }
+    drawShots();
+  };
+  $('#u-img').addEventListener('change', (e) => addFiles([...e.target.files]));
+  const onPaste = (e) => {
+    if (!document.body.contains($('#u-shots'))) { document.removeEventListener('paste', onPaste); return; }
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  };
+  document.addEventListener('paste', onPaste);
+  $('#u-img-go').addEventListener('click', async () => {
+    const p = keys[provider] ? provider : availableProviders()[0];
+    if (!p) { toast('이미지로 만들려면 설정에서 AI API 키를 하나 이상 넣어 주세요.', true); return; }
+    const nn = { id: `i${Date.now()}`, category: '', title: '', url: $('#u-url').value.trim(), source: '', sources: [], summary: '' };
+    const c = await runGenerate([nn], p, { images: shots, extra: $('#n-extra').value.trim() });
+    if (c[0]) location.hash = `#/editor/${c[0].id}`;
+  });
   $('#u-url').addEventListener('paste', () => setTimeout(() => $('#u-url').value && $('#u-go').focus(), 0));
   $('#u-go').addEventListener('click', async () => {
     const url = $('#u-url').value.trim();
@@ -415,17 +464,19 @@ async function generateContent(news, provider, opts = {}) {
   const s = getSettings();
   let body;
   if (provider === 'template') {
-    body = templateContent(news);
+    body = templateContent(news, { handle: s.handle });
   } else {
     const text = await callModel(provider, {
       apiKey: getKeys()[provider], model: s.models[provider], system: SYSTEM_PROMPT,
-      prompt: buildContentPrompt(news, opts), schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, fetchUrl: !!opts.fromUrl, browser: true,
+      prompt: buildContentPrompt(news, { ...opts, handle: s.handle }), images: opts.images, schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, fetchUrl: !!opts.fromUrl, browser: true,
     });
     body = normalizeContent(extractJson(text), news);
   }
   // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다. URL로 만들 때는 AI 판단을 쓴다
   if (CATEGORIES[news.category]) body.category = news.category;
-  if (opts.fromUrl) {
+  // 예전 계정 표기(@moa)가 남아 있으면 현재 계정으로 바꾼다
+  if (s.handle) body.caption = (body.caption || '').replace(/@moa(?![\w.])/g, s.handle);
+  if (opts.fromUrl || opts.images?.length) {
     news.title = news.title || body.title;
     news.category = body.category;
     news.source = news.source || body.sources?.[0]?.name || '';
@@ -458,6 +509,8 @@ async function runGenerate(newsList, provider, opts, { status = 'draft', zip = f
       saveContent(c);
       out.push(c);
       li.className = 'done';
+      const coverErr = await autoCover(c);
+      if (coverErr) li.insertAdjacentHTML('beforeend', `<div class="small muted">첫 장 AI 배경: ${esc(coverErr)}</div>`);
     } catch (e) {
       console.error(e);
       li.className = 'fail';
@@ -479,6 +532,26 @@ async function runGenerate(newsList, provider, opts, { status = 'draft', zip = f
     e.target.disabled = false; e.target.textContent = '📦 전체 PNG ZIP 다운로드';
   });
   return out;
+}
+
+// 첫 장 실사 배경 자동 생성 (설정에서 끌 수 있음). 실패해도 콘텐츠는 그대로 둔다
+function imageProviderFor(s) {
+  const keys = getKeys();
+  if (keys[s.imageProvider] && IMAGE_PROVIDERS[s.imageProvider]) return s.imageProvider;
+  return Object.keys(IMAGE_PROVIDERS).find((p) => keys[p]) || null;
+}
+async function makeCover(c, p) {
+  const s = getSettings();
+  const aspect = c.format === '1080x1440' ? '3:4' : c.format === '1080x1080' ? '1:1' : '4:5';
+  const url = await generateImage(p, { apiKey: getKeys()[p], model: s.imageModels?.[p], prompt: buildCoverPrompt(c), aspect });
+  await putBg(`${c.id}:0`, await shrinkToBlob(url));
+}
+async function autoCover(c) {
+  const s = getSettings();
+  if (!s.autoCover) return '';
+  const p = imageProviderFor(s);
+  if (!p) return 'GPT·Gemini 키가 없어 주제 일러스트로 대신했어요';
+  try { await makeCover(c, p); return ''; } catch (e) { return `생성 실패 (${e.message})`; }
 }
 
 // ---------- 첫 게시물 ----------
@@ -670,10 +743,11 @@ async function editorView(id) {
       </div>
       <h3 style="margin-top:18px">배경 이미지</h3>
       <p class="small muted" style="margin:0 0 8px">${cur === 0 ? '첫 장은 뉴스 주제에 어울리는 배경을 깔면 눈에 잘 띄어요. 제목이 잘 보이도록 위쪽은 자동으로 흐리게 처리돼요.' : '이 장에도 배경 이미지를 넣을 수 있어요.'}</p>
-      ${cur === 0 ? `<label class="row small" style="margin-bottom:8px"><input type="checkbox" id="bg-motif" ${st.motif !== false ? 'checked' : ''}> 주제 일러스트 배경 (이미지가 없을 때)</label>` : ''}
+      ${cur === 0 ? `<label class="row small" style="margin-bottom:6px"><input type="checkbox" id="bg-cover" ${st.cover !== 'classic' ? 'checked' : ''}> 사진 배경이 있으면 매거진 커버 스타일 (흰색 굵은 제목)</label>
+      <label class="row small" style="margin-bottom:8px"><input type="checkbox" id="bg-motif" ${st.motif !== false ? 'checked' : ''}> 사진이 없을 때 주제 일러스트 배경</label>` : ''}
       <div class="row">
         <select id="bg-prov">${Object.entries(IMAGE_PROVIDERS).map(([p, v]) => `<option value="${p}" ${p === env.settings.imageProvider ? 'selected' : ''}>${v.label}${getKeys()[p] ? '' : ' (키 없음)'}</option>`).join('')}</select>
-        <button class="btn sm primary" id="bg-ai">🎨 AI 배경 만들기</button>
+        <button class="btn sm primary" id="bg-ai">🎨 ${cur === 0 ? 'AI 실사 커버 만들기' : 'AI 배경 만들기'}</button>
         <label class="btn sm">🖼️ 이미지 올리기<input type="file" id="bg-up" accept="image/*" hidden></label>
         ${env.bgs[`${c.id}:${cur}`] ? '<button class="btn sm danger" id="bg-rm">배경 지우기</button>' : ''}
       </div>`;
@@ -683,6 +757,7 @@ async function editorView(id) {
       env.bgs = await loadBgs(c.id);
       fillPanel(); await drawCurrent();
     };
+    $('#bg-cover')?.addEventListener('change', (e) => { if (e.target.checked) delete st.cover; else st.cover = 'classic'; persist(); redraw(); });
     $('#bg-motif')?.addEventListener('change', (e) => { if (e.target.checked) delete st.motif; else st.motif = false; persist(); redraw(); });
     $('#bg-up').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -696,7 +771,7 @@ async function editorView(id) {
       const btn = e.target; btn.disabled = true; btn.textContent = '그리는 중… (20~60초)';
       try {
         const aspect = c.format === '1080x1440' ? '3:4' : c.format === '1080x1080' ? '1:1' : '4:5';
-        const url = await generateImage(p, { apiKey, model: env.settings.imageModels?.[p], prompt: buildImagePrompt(c), aspect });
+        const url = await generateImage(p, { apiKey, model: env.settings.imageModels?.[p], prompt: cur === 0 ? buildCoverPrompt(c) : buildImagePrompt(c), aspect });
         await setBg(await shrinkToBlob(url));
         toast('AI 배경을 넣었어요.');
       } catch (err) { toast(`배경 생성 실패: ${err.message}`, true); btn.disabled = false; btn.textContent = '🎨 AI 배경 만들기'; }
@@ -861,7 +936,8 @@ async function settingsView() {
       <div class="field"><label for="imgprov">배경 이미지 생성</label><select id="imgprov">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<option value="${k}" ${k === s.imageProvider ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
     </div>
     <div class="two">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<div class="field"><label for="img-${k}">${v.label} 모델 이름</label><input type="text" id="img-${k}" value="${esc(s.imageModels?.[k] || v.defaultModel)}"></div>`).join('')}</div>
-    <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option></select></div>
+    <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option><option value="Gmarket" ${s.font === 'Gmarket' ? 'selected' : ''}>G마켓 산스 (매거진 느낌)</option></select></div>
+    <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 콘텐츠를 만들 때 첫 장 실사 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
     <div class="row">${Object.entries({ bg: '배경', brown: '브라운', pink: '핑크', green: '그린' }).map(([k, l]) => `<label class="small">${l} <input type="color" data-theme="${k}" value="${s.theme[k]}"></label>`).join('')}
       <button class="btn sm" id="theme-reset">기본 색으로</button></div>
   </section>
@@ -890,6 +966,7 @@ async function settingsView() {
     const ns = { ...s, provider: prov, webSearch: $('#ws').checked, brand: $('#brand').value.trim() || 'MOA | 모아', handle: $('#handle').value.trim(), font: $('#font').value, models: {}, theme: { ...s.theme } };
     Object.keys(PROVIDERS).forEach((k) => { ns.models[k] = $(`#model-${k}`).value.trim() || PROVIDERS[k].defaultModel; });
     ns.format = $('#format').value;
+    ns.autoCover = $('#autocover').checked;
     ns.imageProvider = $('#imgprov').value;
     ns.imageModels = Object.fromEntries(Object.entries(IMAGE_PROVIDERS).map(([k, v]) => [k, $(`#img-${k}`).value.trim() || v.defaultModel]));
     $$('[data-theme]').forEach((i) => { ns.theme[i.dataset.theme] = i.value; });
