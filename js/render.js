@@ -1,7 +1,16 @@
 // 1080×1080 카드뉴스 캔버스 렌더러
 import { CATEGORIES, DEFAULT_POSE } from './ai.js';
 
-export const SIZE = 1080;
+export const SIZE = 1080; // 가로 폭
+// 인스타그램 세로형 비율 (기본 4:5)
+export const FORMATS = {
+  '1080x1350': { w: 1080, h: 1350, label: '4:5 · 1080×1350 (추천)' },
+  '1080x1440': { w: 1080, h: 1440, label: '3:4 · 1080×1440' },
+  '1080x1080': { w: 1080, h: 1080, label: '1:1 · 1080×1080' },
+};
+export const DEFAULT_FORMAT = '1080x1350';
+let H = 1080; // 현재 그리는 카드의 세로 길이 (renderCard에서 설정)
+export const cardHeight = (content, settings) => (FORMATS[content?.format] || FORMATS[settings?.format] || FORMATS[DEFAULT_FORMAT]).h;
 const PAD = 80;
 
 const FONT_STACK = {
@@ -269,7 +278,7 @@ function moaBox(img, pos, size) {
   const w = h * ratio;
   const m = 46;
   const x = pos.endsWith('l') ? m : pos === 'bc' || pos === 'tc' ? (SIZE - w) / 2 : SIZE - m - w;
-  const y = pos.startsWith('t') ? 150 : SIZE - 34 - h;
+  const y = pos.startsWith('t') ? 150 : H - 34 - h;
   return { x, y, w, h };
 }
 
@@ -350,23 +359,29 @@ export async function renderCard(canvas, content, index, env) {
     ...(card.items || []), ...Object.values(card.compare || {}), content.title, settings.handle, settings.brand,
     (content.sources || []).map((s) => s.name).join(''), '01/07 MOA NEWS TREND AI LIFE MONEY FOOD BEAUTY CULTURE SHOPPING PICK CHECK WHAT WHY SO 저장 공유 팔로우 출처']);
 
-  canvas.width = SIZE; canvas.height = SIZE;
+  H = cardHeight(content, settings);
+  canvas.width = SIZE; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.clearRect(0, 0, SIZE, H);
 
   // 배경
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, H);
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = t.green; ctx.beginPath(); ctx.arc(SIZE + 40, -40, 260, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(-80, SIZE - 120, 220, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(-80, H - 120, 220, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 0.18; ctx.fillStyle = t.brown;
-  for (let y = 120; y < SIZE; y += 44) for (let x = 40 + ((y / 44) % 2) * 22; x < SIZE; x += 44) {
-    if (x > 980 || y > 1040) continue;
+  for (let y = 120; y < H; y += 44) for (let x = 40 + ((y / 44) % 2) * 22; x < SIZE; x += 44) {
+    if (x > 980 || y > H - 40) continue;
     if ((x * 7 + y * 3) % 5 !== 0) continue;
     ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
+
+  // 첫 장(또는 사용자가 배경을 넣은 장): 주제에 맞는 배경
+  const bgImg = env.bgs?.[`${content.id}:${index}`];
+  if (bgImg) drawCoverImage(ctx, bgImg, bg);
+  else if (index === 0 && st.motif !== false) { drawMotif(ctx, content.category, t); fadeTop(ctx, bg); }
 
   if (st.bare) {
     const b = moaBox(env.moa, pos, moaSize);
@@ -412,7 +427,7 @@ export async function renderCard(canvas, content, index, env) {
   const ctxText = { family, t, textColor, fontScale, span };
   let y = 170;
   const label = card.type === "MOA'S PICK" ? "MOA'S PICK" : card.type;
-  if (layout !== 'big' && layout !== 'cta') y = drawLabel(ctx, label, y, ctxText);
+  if (layout !== 'big' && layout !== 'cta' && !st.hideLabel) y = drawLabel(ctx, label, y, ctxText);
 
   const L = { big: layBig, text: layText, list: layList, number: layNumber, compare: layCompare, keyword: layKeyword, cta: layCta }[layout] || layText;
   L(ctx, card, y, ctxText, content, settings);
@@ -421,15 +436,15 @@ export async function renderCard(canvas, content, index, env) {
   if ((index === 1 || index === content.cards.length - 1) && content.sources?.length) {
     const src = `출처: ${content.sources.map((s) => s.name).filter(Boolean).slice(0, 3).join(', ')}`;
     ctx.font = `500 22px ${family}`; ctx.fillStyle = shade(t.brown, 0.35);
-    const sp = span(SIZE - 70, SIZE - 40);
+    const sp = span(H - 70, H - 40);
     let s = src;
     while (ctx.measureText(s).width > sp.w && s.length > 4) s = s.slice(0, -1);
-    ctx.fillText(s === src ? s : `${s.slice(0, -1)}…`, sp.l, SIZE - 48);
+    ctx.fillText(s === src ? s : `${s.slice(0, -1)}…`, sp.l, H - 48);
   }
   // 브랜드 표기
   if (index === 0) {
     ctx.font = `700 24px ${family}`; ctx.fillStyle = shade(t.brown, 0.3);
-    ctx.fillText(`${settings.brand}  ${settings.handle}`, PAD, SIZE - 48);
+    ctx.fillText(`${settings.brand}  ${settings.handle}`, PAD, H - 48);
   }
 
   if (showMoa) {
@@ -464,10 +479,13 @@ function block(ctx, text, y, o, opts) {
 
 function layBig(ctx, card, y, o) {
   const { t, textColor } = o;
-  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.9;
-  ctx.font = `800 120px ${o.family}`; ctx.fillText('“', PAD - 6, 270);
-  ctx.globalAlpha = 1;
-  let yy = block(ctx, card.title, 260, o, { weight: 800, max: 108, min: 60, maxLines: 4, lh: 1.22, color: textColor, hl: card.highlight, hlColor: t.pink });
+  if (!card.style?.hideLabel) {
+    ctx.fillStyle = t.pink; ctx.globalAlpha = 0.9;
+    ctx.font = `800 120px ${o.family}`; ctx.fillText('“', PAD - 6, 270 + Math.round((H - 1080) * 0.35));
+    ctx.globalAlpha = 1;
+  }
+  const top = 260 + Math.round((H - 1080) * 0.35); // 세로형 카드에서는 제목을 조금 내려 시선 중앙에 둔다
+  let yy = block(ctx, card.title, top, o, { weight: 800, max: 108, min: 60, maxLines: 4, lh: 1.22, color: textColor, hl: card.highlight, hlColor: t.pink });
   yy += 28;
   block(ctx, card.body, yy, o, { weight: 500, max: 42, min: 30, maxLines: 3, lh: 1.4, color: shade(textColor, 0.15), hl: card.highlight, hlColor: 'transparent', hlText: '#E07A76' });
 }
@@ -514,7 +532,7 @@ function layList(ctx, card, y, o) {
   yy += 30;
   const items = (card.items || []).slice(0, 5);
   const gap = 20;
-  const avail = 1000 - yy;
+  const avail = H - 80 - yy;
   const rowH = Math.min(132, Math.floor((avail - gap * (items.length - 1)) / Math.max(1, items.length)));
   items.forEach((it, i) => {
     const sp = o.span(yy, yy + rowH);
@@ -570,7 +588,7 @@ function layCompare(ctx, card, y, o) {
   const c = card.compare;
   const gap = 28;
   const w = (SIZE - PAD * 2 - gap) / 2;
-  const h = Math.min(400, 760 - yy);
+  const h = Math.min(460, H - 320 - yy);
   [[c.leftTitle || 'BEFORE', c.left, t.green, PAD], [c.rightTitle || 'AFTER', c.right, t.pink, PAD + w + gap]].forEach(([title, body, color, x]) => {
     ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.shadowColor = 'rgba(111,98,88,0.10)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 8;
@@ -628,6 +646,131 @@ function layCta(ctx, card, y, o, content, settings) {
   });
   ctx.font = `800 32px ${family}`; ctx.fillStyle = textColor; ctx.textAlign = 'center';
   ctx.fillText(settings.handle, SIZE / 2, yy + 196); ctx.textAlign = 'left';
+}
+
+// ---------- 배경 ----------
+function drawCoverImage(ctx, img, bg) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const sc = Math.max(SIZE / iw, H / ih);
+  const w = iw * sc;
+  const h = ih * sc;
+  ctx.drawImage(img, (SIZE - w) / 2, (H - h) / 2, w, h);
+  fadeTop(ctx, bg);
+}
+
+// 제목이 잘 읽히도록 위쪽을 배경색으로 부드럽게 덮는다
+function fadeTop(ctx, bg) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  const c = (a) => {
+    const n = parseInt(bg.slice(1), 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+  g.addColorStop(0, c(0.92));
+  g.addColorStop(0.45, c(0.7));
+  g.addColorStop(0.75, c(0.15));
+  g.addColorStop(1, c(0));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, SIZE, H);
+}
+
+// 주제별 일러스트 배경 (이미지가 없을 때 첫 장에 자동으로 깔림)
+function drawMotif(ctx, category, t) {
+  const col = ({ NEWS: '#8C7F75', TREND: '#E8837E', AI: '#7FA3C8', LIFE: '#8FB58A', MONEY: '#D9A441', FOOD: '#E9A06B', BEAUTY: '#E4A1B9', CULTURE: '#9C8CC4', SHOPPING: '#6FB3A8', MOA: '#F29C9C' })[category] || t.brown;
+  const B = H; // 아래쪽 기준
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const circle = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); };
+  const ring = (x, y, r, w) => { ctx.lineWidth = w; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); };
+  const star = (x, y, r) => { sparkle(ctx, x, y, r); ctx.fill(); };
+  switch (category) {
+    case 'MONEY': {
+      [[170, B - 300, 110], [360, B - 170, 74], [110, B - 120, 58]].forEach(([x, y, r]) => { circle(x, y, r); ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = '#fff'; ring(x, y, r * 0.72, 8); ctx.restore(); });
+      [[700, 330, 70], [790, 270, 130], [880, 200, 200]].forEach(([x, top, hh]) => { roundRect(ctx, x, top + 200 - hh, 64, hh, 14); ctx.fill(); });
+      ctx.lineWidth = 14; ctx.beginPath(); ctx.moveTo(680, 470); ctx.lineTo(800, 380); ctx.lineTo(860, 420); ctx.lineTo(980, 300); ctx.stroke();
+      break;
+    }
+    case 'AI': {
+      const nodes = [[120, B - 420], [300, B - 330], [180, B - 200], [420, B - 150], [90, B - 90]];
+      ctx.lineWidth = 8;
+      nodes.forEach(([x, y], i) => nodes.slice(i + 1, i + 3).forEach(([x2, y2]) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke(); }));
+      nodes.forEach(([x, y]) => circle(x, y, 26));
+      roundRect(ctx, 760, 190, 200, 200, 36); ctx.fill();
+      ctx.lineWidth = 12;
+      for (let i = 0; i < 4; i++) { const o = 220 + i * 45; ctx.beginPath(); ctx.moveTo(o + 560, 160); ctx.lineTo(o + 560, 190); ctx.moveTo(o + 560, 390); ctx.lineTo(o + 560, 420); ctx.stroke(); }
+      break;
+    }
+    case 'FOOD': {
+      ctx.beginPath(); ctx.arc(220, B - 260, 170, 0, Math.PI); ctx.fill();
+      roundRect(ctx, 40, B - 280, 360, 30, 15); ctx.fill();
+      ctx.lineWidth = 12;
+      [150, 220, 290].forEach((x) => { ctx.beginPath(); ctx.moveTo(x, B - 330); ctx.bezierCurveTo(x - 30, B - 380, x + 30, B - 420, x, B - 470); ctx.stroke(); });
+      ctx.beginPath(); ctx.moveTo(840, 180); ctx.lineTo(960, 390); ctx.lineTo(720, 390); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'BEAUTY': {
+      roundRect(ctx, 150, B - 470, 110, 150, 40); ctx.fill();
+      roundRect(ctx, 130, B - 330, 150, 230, 24); ctx.fill();
+      [[380, B - 260, 46], [460, B - 380, 28], [330, B - 420, 20], [820, 260, 60], [930, 380, 34]].forEach(([x, y, r]) => ring(x, y, r, 8));
+      star(760, 400, 40); star(560, B - 140, 30);
+      break;
+    }
+    case 'CULTURE': {
+      ctx.save(); ctx.translate(250, B - 280); ctx.rotate(-0.35);
+      roundRect(ctx, -260, -90, 520, 180, 20); ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      for (let i = -220; i < 240; i += 70) { roundRect(ctx, i, -76, 34, 24, 6); ctx.fill(); roundRect(ctx, i, 52, 34, 24, 6); ctx.fill(); }
+      ctx.restore();
+      star(820, 240, 56); star(930, 380, 32); star(700, 360, 26);
+      break;
+    }
+    case 'SHOPPING': {
+      [[90, B - 380, 230, 260], [280, B - 290, 180, 200]].forEach(([x, y, w, hh]) => {
+        roundRect(ctx, x, y, w, hh, 22); ctx.fill();
+        ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(x + w / 2, y, w * 0.24, Math.PI, 0); ctx.stroke();
+      });
+      ctx.save(); ctx.translate(840, 290); ctx.rotate(0.4);
+      roundRect(ctx, -90, -60, 180, 120, 22); ctx.fill();
+      ctx.restore();
+      break;
+    }
+    case 'LIFE': {
+      ctx.beginPath(); ctx.moveTo(60, B - 300); ctx.lineTo(240, B - 460); ctx.lineTo(420, B - 300); ctx.closePath(); ctx.fill();
+      roundRect(ctx, 100, B - 310, 280, 220, 18); ctx.fill();
+      circle(860, 280, 90);
+      ctx.lineWidth = 12;
+      for (let a = 0; a < 360; a += 45) { const r = (a * Math.PI) / 180; ctx.beginPath(); ctx.moveTo(860 + Math.cos(r) * 120, 280 + Math.sin(r) * 120); ctx.lineTo(860 + Math.cos(r) * 150, 280 + Math.sin(r) * 150); ctx.stroke(); }
+      [[560, B - 160, 50], [620, B - 180, 64], [690, B - 160, 48]].forEach(([x, y, r]) => circle(x, y, r));
+      break;
+    }
+    case 'TREND': {
+      const flame = (x, y, s) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 90 * s, y - 60 * s, x - 40 * s, y - 170 * s, x, y - 240 * s); ctx.bezierCurveTo(x + 50 * s, y - 160 * s, x + 100 * s, y - 70 * s, x, y); ctx.fill(); };
+      flame(200, B - 100, 1.3); flame(380, B - 110, 0.8);
+      ctx.lineWidth = 20; ctx.beginPath(); ctx.moveTo(720, 440); ctx.lineTo(940, 220); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(860, 210); ctx.lineTo(950, 210); ctx.lineTo(950, 300); ctx.stroke();
+      star(700, 240, 34);
+      break;
+    }
+    case 'MOA': {
+      [[180, B - 300, 110], [380, B - 180, 60], [860, 300, 80], [720, 420, 40]].forEach(([x, y, r]) => { heartPath(ctx, x, y, r); ctx.fill(); });
+      [[120, 420, 40], [180, 400, 56], [250, 420, 40]].forEach(([x, y, r]) => circle(x, y + 500, r));
+      break;
+    }
+    default: { // NEWS: 신문
+      ctx.save(); ctx.translate(230, B - 300); ctx.rotate(-0.12);
+      roundRect(ctx, -190, -150, 380, 300, 24); ctx.fill();
+      ctx.globalAlpha = 0.6; ctx.fillStyle = '#fff';
+      roundRect(ctx, -150, -110, 140, 100, 10); ctx.fill();
+      [-110, -70, -30].forEach((yy) => { roundRect(ctx, 20, yy, 130, 16, 8); ctx.fill(); });
+      [20, 60, 100].forEach((yy) => { roundRect(ctx, -150, yy, 300, 16, 8); ctx.fill(); });
+      ctx.restore();
+      circle(860, 280, 80);
+      ctx.save(); ctx.globalAlpha = 0.7; ctx.fillStyle = '#fff'; ctx.font = '900 110px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 860, 286); ctx.restore();
+      break;
+    }
+  }
+  ctx.restore();
 }
 
 // ---------- 내보내기 ----------

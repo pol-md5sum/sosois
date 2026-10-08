@@ -1,12 +1,16 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
+  introContent, generateImage, buildImagePrompt, IMAGE_PROVIDERS, TOPIC_KEYS,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
+  putBg, deleteBg, getBgsFor,
 } from './store.js';
-import { renderCard, canvasToBlob, loadImage, autoLayout } from './render.js';
+import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT } from './render.js';
+
+const TOPICS = () => TOPIC_KEYS().map((k) => [k, CATEGORIES[k]]);
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -86,6 +90,26 @@ async function renderEnv(force = false) {
   return ENV;
 }
 
+// 카드 배경 이미지 (콘텐츠별)
+async function loadBgs(contentId) {
+  const out = {};
+  const stored = await getBgsFor(contentId);
+  for (const [k, blob] of Object.entries(stored)) {
+    try { out[k] = await loadImage(URL.createObjectURL(blob)); } catch { /* 무시 */ }
+  }
+  return out;
+}
+// 생성·업로드한 이미지를 1080px 폭 JPEG로 줄여 저장 용량을 아낀다
+async function shrinkToBlob(src) {
+  const img = await loadImage(src);
+  const w = Math.min(1080, img.naturalWidth);
+  const h = Math.round((img.naturalHeight / img.naturalWidth) * w);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  return new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.88));
+}
+
 function setDraftNews(n) { sessionStorage.setItem('moa.draftNews', JSON.stringify(n)); }
 function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.draftNews')) || null; } catch { return null; } }
 
@@ -155,6 +179,7 @@ async function dashboard() {
       <div class="row">
         <button class="btn primary big" id="oneclick">🐑 오늘의 콘텐츠 만들기</button>
         <a class="btn big" href="#/news">오늘의 뉴스 보기</a>
+        <button class="btn big pink" id="intro">🐑 첫 게시물 (모아 소개)</button>
       </div>
     </div>
     <img src="assets/moa/moa.png" alt="모아 캐릭터" class="bounce">
@@ -167,7 +192,7 @@ async function dashboard() {
   </div>
   ${keys.length ? '' : '<div class="notice">AI API 키가 아직 없어서 <b>템플릿 모드</b>로 만들어져요. <a href="#/settings">설정</a>에서 GPT·Gemini·Claude 중 하나의 키를 넣으면 기사 내용을 분석한 원고가 생성됩니다.</div>'}
   <h2>주제별 오늘의 픽</h2>
-  <div class="topic-grid">${Object.entries(CATEGORIES).map(([k, c]) => {
+  <div class="topic-grid">${TOPICS().map(([k, c]) => {
     const best = pickTop(data.items.filter((n) => n.category === k), 1)[0];
     const mine = contents.filter((x) => x.category === k).length;
     return `<a class="topic" href="#/topics/${k}" style="--c:${c.color}">
@@ -182,6 +207,7 @@ async function dashboard() {
   <p class="small muted" style="margin-top:28px">뉴스 업데이트: ${data.generatedAt ? esc(new Date(data.generatedAt).toLocaleString('ko-KR')) : '없음'}${data.curatedBy ? ` · AI 선별: ${esc(PROVIDERS[data.curatedBy]?.label || data.curatedBy)}` : ' · 규칙 기반 선별'}</p>`;
   bindMake(view);
   $('#oneclick').addEventListener('click', oneClick);
+  $('#intro').addEventListener('click', createIntro);
 }
 
 function emptyNews(data) {
@@ -206,7 +232,7 @@ async function newsView() {
   <h1>📰 오늘의 뉴스</h1>
   <p class="sub">최근 24시간 뉴스를 같은 사건끼리 묶고, MOA 적합도(최근성·화제성·SNS 확산·2040 여성 관심·생활 연관·설명 용이·카드뉴스 적합)로 정렬했어요.</p>
   <div class="row" style="margin-bottom:16px">
-    <select id="f-cat"><option value="">전체 카테고리</option>${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
+    <select id="f-cat"><option value="">전체 카테고리</option>${TOPICS().map(([k, v]) => `<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
     <select id="f-sort"><option value="moa">MOA 적합도순</option><option value="new">최신순</option><option value="buzz">화제성순</option></select>
     <input type="search" id="f-q" placeholder="뉴스 검색" style="max-width:260px">
     <span class="spacer"></span>
@@ -232,14 +258,14 @@ async function newsView() {
 // ---------- 주제별 콘텐츠 ----------
 async function topicsView(cat) {
   const data = await loadNews();
-  const key = CATEGORIES[cat] ? cat : 'NEWS';
+  const key = CATEGORIES[cat] && !CATEGORIES[cat].hidden ? cat : 'NEWS';
   const c = CATEGORIES[key];
   const items = data.items.filter((n) => n.category === key).sort((a, b) => b.moaScore - a.moaScore);
   const mine = listContents().filter((x) => x.category === key);
   view.innerHTML = `
   <h1>🧺 주제별 콘텐츠</h1>
   <p class="sub">기획안의 MOA 카테고리별로 오늘의 뉴스를 모아 보고, 주제에 맞는 톤으로 카드뉴스를 만들어요.</p>
-  <div class="tabs">${Object.entries(CATEGORIES).map(([k, v]) => `<a href="#/topics/${k}" class="${k === key ? 'on' : ''}" style="--c:${v.color}">${v.emoji} ${esc(v.name)} <span>${data.items.filter((n) => n.category === k).length}</span></a>`).join('')}</div>
+  <div class="tabs">${TOPICS().map(([k, v]) => `<a href="#/topics/${k}" class="${k === key ? 'on' : ''}" style="--c:${v.color}">${v.emoji} ${esc(v.name)} <span>${data.items.filter((n) => n.category === k).length}</span></a>`).join('')}</div>
   <section class="panel topic-head" style="--c:${c.color}">
     <div class="row"><span class="topic-emoji big">${c.emoji}</span><div><h2 style="margin:0">${esc(c.label)}</h2><div class="muted">${esc(c.desc)}</div></div></div>
     <p class="small" style="margin:12px 0 6px"><b>모아 작성 원칙</b> · ${esc(c.guide)}</p>
@@ -297,6 +323,15 @@ async function createView() {
   view.innerHTML = `
   <h1>✏️ 콘텐츠 만들기</h1>
   <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 7장 원고·모아 포즈·캡션·해시태그가 한 번에 만들어져요.</p>
+  <section class="panel url-box">
+    <h3>🔗 뉴스 기사 URL로 바로 만들기</h3>
+    <p class="small muted" style="margin:0 0 10px">기사 주소를 붙여넣으면 AI가 기사를 직접 읽고 7장 카드뉴스를 만들어요. (Claude·Gemini·GPT 키 필요, 주제는 AI가 판단)</p>
+    <div class="row" style="flex-wrap:nowrap">
+      <input type="url" id="u-url" placeholder="https://n.news.naver.com/... 또는 언론사 기사 주소" style="flex:1">
+      <button class="btn primary" id="u-go">이 기사로 만들기</button>
+    </div>
+  </section>
+  <div class="row" style="margin:14px 0"><span class="small muted">또는 아래에 뉴스 정보를 직접 채워서 만들기</span><span class="spacer"></span><button class="btn sm pink" id="c-intro">🐑 첫 게시물 (모아 소개) 만들기</button></div>
   <div class="editor" style="grid-template-columns:minmax(0,1fr) 360px">
     <section class="panel">
       <h3>뉴스 정보</h3>
@@ -348,6 +383,17 @@ async function createView() {
     if (!nn.title) { toast('뉴스 제목을 입력해 주세요.', true); return null; }
     return nn;
   };
+  $('#c-intro').addEventListener('click', createIntro);
+  $('#u-url').addEventListener('paste', () => setTimeout(() => $('#u-url').value && $('#u-go').focus(), 0));
+  $('#u-go').addEventListener('click', async () => {
+    const url = $('#u-url').value.trim();
+    if (!/^https?:\/\/\S+\.\S+/.test(url)) { toast('기사 주소(https://…)를 붙여넣어 주세요.', true); return; }
+    const p = keys[provider] ? provider : availableProviders()[0];
+    if (!p) { toast('URL로 만들려면 설정에서 AI API 키를 하나 이상 넣어 주세요.', true); return; }
+    const nn = { id: `u${Date.now()}`, category: '', title: '', url, source: '', sources: [{ name: '', title: '', url }], summary: '' };
+    const c = await runGenerate([nn], p, { fromUrl: true, extra: $('#n-extra').value.trim() });
+    if (c[0]) location.hash = `#/editor/${c[0].id}`;
+  });
   $('#go').addEventListener('click', async () => {
     const nn = guard(); if (!nn) return;
     if (!keys[provider]) { toast(`${PROVIDERS[provider].label} API 키가 없어요. 설정에서 넣거나 템플릿으로 만들어 주세요.`, true); return; }
@@ -373,18 +419,24 @@ async function generateContent(news, provider, opts = {}) {
   } else {
     const text = await callModel(provider, {
       apiKey: getKeys()[provider], model: s.models[provider], system: SYSTEM_PROMPT,
-      prompt: buildContentPrompt(news, opts), schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, browser: true,
+      prompt: buildContentPrompt(news, opts), schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, fetchUrl: !!opts.fromUrl, browser: true,
     });
     body = normalizeContent(extractJson(text), news);
   }
-  // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다
+  // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다. URL로 만들 때는 AI 판단을 쓴다
   if (CATEGORIES[news.category]) body.category = news.category;
+  if (opts.fromUrl) {
+    news.title = news.title || body.title;
+    news.category = body.category;
+    news.source = news.source || body.sources?.[0]?.name || '';
+  }
   return {
     id: newId(),
     createdAt: new Date().toISOString(),
     status: 'draft',
     model: provider,
     modelName: provider === 'template' ? '템플릿' : s.models[provider],
+    format: s.format || DEFAULT_FORMAT,
     news: { id: news.id, title: news.title, url: news.url, source: news.source, publishedAt: news.publishedAt, category: news.category, sources: (news.sources || []).slice(0, 8) },
     ...body,
   };
@@ -394,7 +446,7 @@ async function runGenerate(newsList, provider, opts, { status = 'draft', zip = f
   const label = provider === 'template' ? '템플릿' : PROVIDERS[provider].label;
   const box = modal(`<div data-busy><h2 style="margin-top:0">🐑 모아가 만드는 중…</h2>
     <p class="small muted">${esc(label)}${opts.webSearch ? ' · 웹 검색 사용' : ''} — 한 건에 보통 20초~1분 걸려요.</p>
-    <ul class="progress" id="prog">${newsList.map((n, i) => `<li id="p${i}">${esc(n.title.slice(0, 50))}</li>`).join('')}</ul>
+    <ul class="progress" id="prog">${newsList.map((n, i) => `<li id="p${i}">${esc((n.title || n.url || '').slice(0, 50))}</li>`).join('')}</ul>
     <div id="pfoot"></div></div>`);
   const out = [];
   for (let i = 0; i < newsList.length; i++) {
@@ -427,6 +479,18 @@ async function runGenerate(newsList, provider, opts, { status = 'draft', zip = f
     e.target.disabled = false; e.target.textContent = '📦 전체 PNG ZIP 다운로드';
   });
   return out;
+}
+
+// ---------- 첫 게시물 ----------
+function createIntro() {
+  const s = getSettings();
+  const c = {
+    id: newId(), createdAt: new Date().toISOString(), status: 'draft', model: 'template', modelName: '첫 게시물 프리셋',
+    format: s.format || DEFAULT_FORMAT, news: { title: '모아 소개' }, ...introContent(),
+  };
+  saveContent(c);
+  toast('첫 게시물(모아 소개)을 만들었어요.');
+  location.hash = `#/editor/${c.id}`;
 }
 
 // ---------- 원클릭 ----------
@@ -508,6 +572,8 @@ async function editorView(id) {
   const c = getContent(id);
   if (!c) { view.innerHTML = '<div class="empty">콘텐츠를 찾을 수 없어요. <a href="#/contents">내 콘텐츠</a></div>'; return; }
   const env = await renderEnv();
+  env.bgs = await loadBgs(c.id);
+  c.format = c.format || DEFAULT_FORMAT;
   let cur = 0;
   view.innerHTML = `
   <div class="row" style="margin-bottom:14px">
@@ -515,6 +581,8 @@ async function editorView(id) {
     <select id="e-status">${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}" ${k === c.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <label class="small" for="e-cat" style="font-weight:700;color:var(--brown)">주제</label>
     <select id="e-cat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${v.emoji} ${v.label}</option>`).join('')}</select>
+    <label class="small" for="e-format" style="font-weight:700;color:var(--brown)">크기</label>
+    <select id="e-format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === c.format ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
     <span class="spacer"></span>
     <button class="btn" id="e-png">⬇️ 이 카드 PNG</button>
@@ -599,7 +667,40 @@ async function editorView(id) {
       <div class="row" style="margin-top:10px">
         <button class="btn sm" id="style-all">이 디자인을 7장 모두에 적용</button>
         <button class="btn sm" id="style-reset">디자인 초기화</button>
+      </div>
+      <h3 style="margin-top:18px">배경 이미지</h3>
+      <p class="small muted" style="margin:0 0 8px">${cur === 0 ? '첫 장은 뉴스 주제에 어울리는 배경을 깔면 눈에 잘 띄어요. 제목이 잘 보이도록 위쪽은 자동으로 흐리게 처리돼요.' : '이 장에도 배경 이미지를 넣을 수 있어요.'}</p>
+      ${cur === 0 ? `<label class="row small" style="margin-bottom:8px"><input type="checkbox" id="bg-motif" ${st.motif !== false ? 'checked' : ''}> 주제 일러스트 배경 (이미지가 없을 때)</label>` : ''}
+      <div class="row">
+        <select id="bg-prov">${Object.entries(IMAGE_PROVIDERS).map(([p, v]) => `<option value="${p}" ${p === env.settings.imageProvider ? 'selected' : ''}>${v.label}${getKeys()[p] ? '' : ' (키 없음)'}</option>`).join('')}</select>
+        <button class="btn sm primary" id="bg-ai">🎨 AI 배경 만들기</button>
+        <label class="btn sm">🖼️ 이미지 올리기<input type="file" id="bg-up" accept="image/*" hidden></label>
+        ${env.bgs[`${c.id}:${cur}`] ? '<button class="btn sm danger" id="bg-rm">배경 지우기</button>' : ''}
       </div>`;
+    const bgKey = `${c.id}:${cur}`;
+    const setBg = async (blob) => {
+      await putBg(bgKey, blob);
+      env.bgs = await loadBgs(c.id);
+      fillPanel(); await drawCurrent();
+    };
+    $('#bg-motif')?.addEventListener('change', (e) => { if (e.target.checked) delete st.motif; else st.motif = false; persist(); redraw(); });
+    $('#bg-up').addEventListener('change', async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      try { await setBg(await shrinkToBlob(URL.createObjectURL(f))); toast('배경을 넣었어요.'); } catch { toast('이미지를 읽지 못했어요.', true); }
+    });
+    $('#bg-rm')?.addEventListener('click', async () => { await deleteBg(bgKey); env.bgs = await loadBgs(c.id); fillPanel(); await drawCurrent(); });
+    $('#bg-ai').addEventListener('click', async (e) => {
+      const p = $('#bg-prov').value;
+      const apiKey = getKeys()[p];
+      if (!apiKey) { toast(`${IMAGE_PROVIDERS[p].label}는 ${PROVIDERS[p].label} API 키가 필요해요. 설정에서 넣어 주세요.`, true); return; }
+      const btn = e.target; btn.disabled = true; btn.textContent = '그리는 중… (20~60초)';
+      try {
+        const aspect = c.format === '1080x1440' ? '3:4' : c.format === '1080x1080' ? '1:1' : '4:5';
+        const url = await generateImage(p, { apiKey, model: env.settings.imageModels?.[p], prompt: buildImagePrompt(c), aspect });
+        await setBg(await shrinkToBlob(url));
+        toast('AI 배경을 넣었어요.');
+      } catch (err) { toast(`배경 생성 실패: ${err.message}`, true); btn.disabled = false; btn.textContent = '🎨 AI 배경 만들기'; }
+    });
     $$('[data-k]', $('#panel')).forEach((el) => el.addEventListener('input', () => {
       const key = el.dataset.k;
       k[key] = key === 'items' ? el.value.split('\n').map((x) => x.trim()).filter(Boolean) : el.value;
@@ -628,6 +729,7 @@ async function editorView(id) {
   $('#next').addEventListener('click', () => select(cur + 1));
   $('#e-title').addEventListener('input', (e) => { c.title = e.target.value; persist(); });
   $('#e-status').addEventListener('change', (e) => { c.status = e.target.value; persist(); toast(`상태: ${STATUSES[c.status]}`); });
+  $('#e-format').addEventListener('change', async (e) => { c.format = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#e-cat').addEventListener('change', async (e) => { c.category = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#cap').addEventListener('input', (e) => { c.caption = e.target.value; persist(); });
   $('#tags').addEventListener('input', (e) => { c.hashtags = e.target.value.split(/[\s,]+/).map((h) => h.replace(/^#+/, '')).filter(Boolean); persist(); });
@@ -666,6 +768,7 @@ async function downloadZip(contents, name) {
   const zip = new window.JSZip();
   const cv = document.createElement('canvas');
   for (const c of contents) {
+    env.bgs = await loadBgs(c.id);
     const dir = contents.length > 1 ? zip.folder(safeName(c.title)) : zip;
     for (let i = 0; i < c.cards.length; i++) {
       await renderCard(cv, c, i, env);
@@ -753,6 +856,11 @@ async function settingsView() {
       <div class="field"><label for="brand">브랜드 표기</label><input type="text" id="brand" value="${esc(s.brand)}"></div>
       <div class="field"><label for="handle">인스타그램 계정</label><input type="text" id="handle" value="${esc(s.handle)}"></div>
     </div>
+    <div class="two">
+      <div class="field"><label for="format">기본 카드 크기</label><select id="format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === (s.format || DEFAULT_FORMAT) ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+      <div class="field"><label for="imgprov">배경 이미지 생성</label><select id="imgprov">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<option value="${k}" ${k === s.imageProvider ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="two">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<div class="field"><label for="img-${k}">${v.label} 모델 이름</label><input type="text" id="img-${k}" value="${esc(s.imageModels?.[k] || v.defaultModel)}"></div>`).join('')}</div>
     <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option></select></div>
     <div class="row">${Object.entries({ bg: '배경', brown: '브라운', pink: '핑크', green: '그린' }).map(([k, l]) => `<label class="small">${l} <input type="color" data-theme="${k}" value="${s.theme[k]}"></label>`).join('')}
       <button class="btn sm" id="theme-reset">기본 색으로</button></div>
@@ -781,6 +889,9 @@ async function settingsView() {
   const collect = () => {
     const ns = { ...s, provider: prov, webSearch: $('#ws').checked, brand: $('#brand').value.trim() || 'MOA | 모아', handle: $('#handle').value.trim(), font: $('#font').value, models: {}, theme: { ...s.theme } };
     Object.keys(PROVIDERS).forEach((k) => { ns.models[k] = $(`#model-${k}`).value.trim() || PROVIDERS[k].defaultModel; });
+    ns.format = $('#format').value;
+    ns.imageProvider = $('#imgprov').value;
+    ns.imageModels = Object.fromEntries(Object.entries(IMAGE_PROVIDERS).map(([k, v]) => [k, $(`#img-${k}`).value.trim() || v.defaultModel]));
     $$('[data-theme]').forEach((i) => { ns.theme[i.dataset.theme] = i.value; });
     const nk = {};
     Object.keys(PROVIDERS).forEach((k) => { const v = $(`#key-${k}`).value.trim(); if (v) nk[k] = v; });

@@ -91,7 +91,7 @@ input[type=color] { width: 44px; height: 34px; border: 1px solid var(--line); bo
 .thumbs button.on { border-color: var(--brown); }
 .thumbs canvas { width: 100%; display: block; border-radius: 10px; }
 .thumbs span { position: absolute; left: 6px; top: 6px; background: rgba(255,255,255,.9); border-radius: 6px; font-size: 11px; padding: 0 5px; font-weight: 800; color: var(--brown); }
-.stage canvas { width: 100%; max-width: 640px; aspect-ratio: 1; display: block; margin: 0 auto; border-radius: 16px; box-shadow: var(--shadow); background: #fff; }
+.stage canvas { width: 100%; max-width: 600px; height: auto; display: block; margin: 0 auto; border-radius: 16px; box-shadow: var(--shadow); background: #fff; }
 .stage .row { justify-content: center; margin-top: 14px; }
 .edit-panel { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
 .edit-panel h3 { margin-top: 6px; }
@@ -165,3 +165,5 @@ td select { width: auto; padding: 5px 8px; }
 .topic-head { border-left: 6px solid var(--c); }
 
 .cat-select { width: auto !important; padding: 3px 8px !important; border-radius: 999px !important; font-size: 12px; font-weight: 700; color: var(--brown); background: color-mix(in srgb, var(--c, #C9D8C0) 18%, #fff) !important; border-color: transparent !important; cursor: pointer; }
+
+.url-box { border: 2px dashed var(--pink); background: #FFFDF9; }

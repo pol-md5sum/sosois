@@ -18,11 +18,14 @@ export const DEFAULT_SETTINGS = {
   handle: '@moa.studio',
   brand: 'MOA | 모아',
   theme: { bg: '#FFF9F0', brown: '#6F6258', pink: '#F5B8B5', green: '#C9D8C0' },
+  format: '1080x1350',
+  imageProvider: 'gpt',
+  imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
 
 export function getSettings() {
   const s = read(K.settings, {});
-  return { ...DEFAULT_SETTINGS, ...s, models: { ...DEFAULT_SETTINGS.models, ...(s.models || {}) }, theme: { ...DEFAULT_SETTINGS.theme, ...(s.theme || {}) } };
+  return { ...DEFAULT_SETTINGS, ...s, models: { ...DEFAULT_SETTINGS.models, ...(s.models || {}) }, imageModels: { ...DEFAULT_SETTINGS.imageModels, ...(s.imageModels || {}) }, theme: { ...DEFAULT_SETTINGS.theme, ...(s.theme || {}) } };
 }
 export const saveSettings = (s) => write(K.settings, s);
 
@@ -63,17 +66,20 @@ export const newId = () => `c${Date.now().toString(36)}${Math.random().toString(
 // ---------- 포즈 이미지 (IndexedDB) ----------
 function db() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('moa', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('poses');
+    const r = indexedDB.open('moa', 2);
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains('poses')) r.result.createObjectStore('poses');
+      if (!r.result.objectStoreNames.contains('bgs')) r.result.createObjectStore('bgs');
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
 }
-async function tx(mode, fn) {
+async function tx(mode, fn, store = 'poses') {
   const d = await db();
   return new Promise((res, rej) => {
-    const t = d.transaction('poses', mode);
-    const out = fn(t.objectStore('poses'));
+    const t = d.transaction(store, mode);
+    const out = fn(t.objectStore(store));
     t.oncomplete = () => res(out?.result);
     t.onerror = () => rej(t.error);
   });
@@ -89,6 +95,28 @@ export async function getAllPoses() {
       req.onsuccess = () => {
         const c = req.result;
         if (c) { out[c.key] = c.value; c.continue(); } else res(out);
+      };
+      req.onerror = () => rej(req.error);
+    });
+  } catch {
+    return {};
+  }
+}
+
+// ---------- 카드 배경 이미지 (IndexedDB, 키: 콘텐츠ID:카드번호) ----------
+export const putBg = (key, blob) => tx('readwrite', (s) => s.put(blob, key), 'bgs');
+export const deleteBg = (key) => tx('readwrite', (s) => s.delete(key), 'bgs');
+export async function getBgsFor(contentId) {
+  try {
+    const d = await db();
+    return await new Promise((res, rej) => {
+      const out = {};
+      const req = d.transaction('bgs').objectStore('bgs').openCursor();
+      req.onsuccess = () => {
+        const c = req.result;
+        if (!c) { res(out); return; }
+        if (String(c.key).startsWith(`${contentId}:`)) out[c.key] = c.value;
+        c.continue();
       };
       req.onerror = () => rej(req.error);
     });
