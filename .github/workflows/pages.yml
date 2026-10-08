@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # 3시간마다 최신 뉴스를 다시 수집해 배포한다 (UTC 기준)
+    - cron: "17 */3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,9 +25,25 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch news & trends
+        continue-on-error: true
+        env:
+          # 선택 사항: 저장소 Secrets에 하나라도 넣으면 AI가 MOA 적합도를 재평가한다.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/fetch-news.mjs
+      - name: Prepare site
+        run: |
+          mkdir -p _site
+          cp -r index.html .nojekyll css js assets data _site/ 2>/dev/null || true
+          test -f _site/data/news.json || echo '{"generatedAt":null,"items":[],"trends":[],"errors":["뉴스 수집에 실패했습니다."]}' > _site/data/news.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
