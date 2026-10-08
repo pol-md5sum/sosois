@@ -97,6 +97,40 @@ export function cluster(raw) {
   return clusters;
 }
 
+// ---------- 주제 분류 ----------
+// 종합 뉴스로 들어온 기사도 제목 키워드로 주제를 다시 판단한다
+export const TOPIC_KW = {
+  AI: ['AI', '인공지능', '챗GPT', 'GPT', '생성형', '오픈AI', '제미나이', '클로드', '로봇', '반도체', '자율주행', 'LLM'],
+  MONEY: ['금리', '대출', '적금', '예금', '재테크', '주식', '코스피', '환율', '연말정산', '청약', '부동산', '집값', '전세', '월세', '세금', '연금', '코인', '비트코인'],
+  LIFE: ['날씨', '미세먼지', '육아', '출산', '건강', '병원', '교통', '물가', '요금', '전기', '가스', '지원금', '복지', '반려', '이사'],
+  FOOD: ['맛집', '신메뉴', '편의점', '디저트', '카페', '음식', '먹거리', '라면', '빵', '커피', '배달', '레시피', '식품'],
+  BEAUTY: ['뷰티', '화장품', '스킨케어', '올리브영', '메이크업', '피부', '향수', '헤어', '네일', '선크림'],
+  CULTURE: ['드라마', '영화', '전시', '공연', '넷플릭스', '콘서트', '아이돌', '뮤지컬', '웹툰', '책', '예능', 'OTT', '팝업'],
+  SHOPPING: ['쇼핑', '할인', '세일', '쿠팡', '신상', '출시', '무신사', '블랙프라이데이', '특가', '쇼핑몰', '이커머스'],
+  TREND: ['화제', '열풍', '품절', '유행', '인기', '챌린지', '밈', 'MZ', '대란', '오픈런', '핫플'],
+};
+export function classify(title, fallback = 'NEWS', only = null) {
+  let best = fallback;
+  let bestHits = 0;
+  for (const [cat, words] of Object.entries(TOPIC_KW)) {
+    if (only && !only.includes(cat)) continue;
+    const hits = words.reduce((n, w) => n + (title.includes(w) ? 1 : 0), 0);
+    if (hits > bestHits) { best = cat; bestHits = hits; }
+  }
+  return best;
+}
+
+// 주제마다 최소 perCat개를 보장하고 나머지는 점수순으로 채운다
+export function selectBalanced(items, perCat = 12, total = 140) {
+  const out = [];
+  const seen = new Set();
+  for (const cat of Object.keys(CATEGORIES)) {
+    items.filter((x) => x.category === cat).slice(0, perCat).forEach((x) => { out.push(x); seen.add(x); });
+  }
+  for (const x of items) { if (out.length >= total) break; if (!seen.has(x)) out.push(x); }
+  return out.sort((a, b) => b.moaScore - a.moaScore);
+}
+
 // ---------- MOA 적합도 (규칙 기반) ----------
 const KW = {
   target: ['여성', '엄마', '육아', '출산', '결혼', '직장인', '뷰티', '다이어트', '건강', '카페', '여행', '쇼핑', '드라마', '아이돌', '패션', '반려', '인테리어', '연애', '맞벌이', '워킹맘', '피부'],
@@ -168,6 +202,12 @@ async function main() {
 
   const now = Date.now();
   const clusters = cluster(raw);
+  for (const c of clusters) {
+    const text = c.title + ' ' + c.sources.map((x) => x.title).join(' ');
+    const specific = [...c.categories].filter((k) => k !== 'NEWS');
+    // 여러 주제 피드에 함께 걸리면 키워드가 가장 많이 맞는 주제로, 종합 피드만이면 키워드로 분류
+    c.category = specific.length > 1 ? classify(text, specific[0], specific) : specific[0] || classify(text);
+  }
   let items = clusters.map((c, i) => {
     const { scores, moaScore, buzzScore } = scoreCluster(c, now);
     const outlets = [...new Set(c.sources.map((s) => s.name).filter(Boolean))];
@@ -195,7 +235,8 @@ async function main() {
   } catch (e) {
     errors.push(`AI 큐레이션: ${e.message}`);
   }
-  items = items.slice(0, 80);
+  items = selectBalanced(items);
+  const byCategory = Object.fromEntries(Object.keys(CATEGORIES).map((k) => [k, items.filter((x) => x.category === k).length]));
 
   let trends = [];
   try {
@@ -207,10 +248,11 @@ async function main() {
     errors.push(`트렌드: ${e.message}`);
   }
 
-  const out = { generatedAt: new Date(now).toISOString(), curatedBy, count: items.length, errors, items, trends };
+  const out = { generatedAt: new Date(now).toISOString(), curatedBy, count: items.length, byCategory, errors, items, trends };
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out, null, 1));
   console.log(`news.json: ${items.length} items, ${trends.length} trends, curatedBy=${curatedBy}, errors=${errors.length}`);
+  console.log('  by category:', JSON.stringify(byCategory));
   errors.forEach((e) => console.warn('  -', e));
 }
 

@@ -379,8 +379,10 @@ export async function renderCard(canvas, content, index, env) {
   ctx.font = `800 30px ${family}`;
   const catText = cat.label;
   const cw = ctx.measureText(catText).width + 48;
-  ctx.fillStyle = t.brown; roundRect(ctx, PAD, 58, cw, 56, 28); ctx.fill();
-  ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle'; ctx.fillText(catText, PAD + 24, 88);
+  // 주제별 색 (뉴스는 브랜드 브라운)
+  const catColor = content.category === 'NEWS' || !cat.color ? t.brown : cat.color;
+  ctx.fillStyle = catColor; roundRect(ctx, PAD, 58, cw, 56, 28); ctx.fill();
+  ctx.fillStyle = catColor === t.brown ? '#FFFFFF' : '#3F3530'; ctx.textBaseline = 'middle'; ctx.fillText(catText, PAD + 24, 88);
   ctx.font = `700 30px ${family}`; ctx.fillStyle = t.brown; ctx.textAlign = 'right';
   ctx.fillText(`${String(index + 1).padStart(2, '0')} / ${String(content.cards.length).padStart(2, '0')}`, SIZE - PAD, 88);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';

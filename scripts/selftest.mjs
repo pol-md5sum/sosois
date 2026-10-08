@@ -1,7 +1,7 @@
 // 네트워크 없이 파서·점수·정규화를 점검한다: node scripts/selftest.mjs
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import { parseRss, cluster, scoreCluster } from './fetch-news.mjs';
+import { parseRss, cluster, scoreCluster, classify, selectBalanced } from './fetch-news.mjs';
 import { normalizeContent, templateContent, extractJson, heuristicScore, buildContentPrompt, CARD_TYPES } from '../js/ai.js';
 
 const xml = await readFile(new URL('./fixtures/gnews.xml', import.meta.url), 'utf8');
@@ -38,4 +38,10 @@ assert.deepEqual(n.hashtags, ['모아', '모아뉴스']);
 assert.ok(n.sources.length > 0, '출처가 없으면 뉴스 출처로 채움');
 assert.ok(heuristicScore(t).readability > 0);
 assert.ok(buildContentPrompt(news, { webSearch: true }).includes('웹 검색'));
+assert.equal(classify('한국은행 기준금리 동결, 대출 이자는'), 'MONEY');
+assert.equal(classify('올리브영 스킨케어 신상 화장품'), 'BEAUTY');
+assert.equal(classify('국회 본회의 개최'), 'NEWS');
+const pool = [...Array(30)].map((_, i) => ({ category: i < 25 ? 'NEWS' : 'BEAUTY', moaScore: 100 - i }));
+const bal = selectBalanced(pool, 3, 6);
+assert.equal(bal.filter((x) => x.category === 'BEAUTY').length, 3, '점수가 낮아도 주제별 최소 개수 보장');
 console.log('selftest OK');
