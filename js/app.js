@@ -8,9 +8,7 @@ import {
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
   putBg, deleteBg, getBgsFor,
 } from './store.js';
-import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT } from './render.js';
-
-const COVER_STYLES = { magazine: '📷 사진 매거진 (AI 실사 배경)', character: '🐑 캐릭터 썸네일 (흰 배경 + 큰 제목 + 말풍선)', classic: '🎨 기본 (크림 배경)' };
+import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme } from './render.js';
 
 const TOPICS = () => TOPIC_KEYS().map((k) => [k, CATEGORIES[k]]);
 
@@ -490,7 +488,7 @@ async function generateContent(news, provider, opts = {}) {
     model: provider,
     modelName: provider === 'template' ? '템플릿' : s.models[provider],
     format: s.format || DEFAULT_FORMAT,
-    coverStyle: s.coverStyle || 'magazine',
+    theme: s.deckTheme || 'toon',
     news: { id: news.id, title: news.title, url: news.url, source: news.source, publishedAt: news.publishedAt, category: news.category, sources: (news.sources || []).slice(0, 8) },
     ...body,
   };
@@ -551,7 +549,7 @@ async function makeCover(c, p) {
 }
 async function autoCover(c) {
   const s = getSettings();
-  if (!s.autoCover || (c.coverStyle || s.coverStyle) !== 'magazine') return '';
+  if (!s.autoCover || deckTheme(c, s) !== 'magazine') return '';
   const p = imageProviderFor(s);
   if (!p) return 'GPT·Gemini 키가 없어 주제 일러스트로 대신했어요';
   try { await makeCover(c, p); return ''; } catch (e) { return `생성 실패 (${e.message})`; }
@@ -657,6 +655,8 @@ async function editorView(id) {
     <select id="e-status">${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}" ${k === c.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <label class="small" for="e-cat" style="font-weight:700;color:var(--brown)">주제</label>
     <select id="e-cat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${v.emoji} ${v.label}</option>`).join('')}</select>
+    <label class="small" for="e-theme" style="font-weight:700;color:var(--brown)">디자인</label>
+    <select id="e-theme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === deckTheme(c, env.settings) ? 'selected' : ''}>${v.split(' (')[0]}</option>`).join('')}</select>
     <label class="small" for="e-format" style="font-weight:700;color:var(--brown)">크기</label>
     <select id="e-format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === c.format ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
@@ -746,8 +746,6 @@ async function editorView(id) {
       </div>
       <h3 style="margin-top:18px">배경 이미지</h3>
       <p class="small muted" style="margin:0 0 8px">${cur === 0 ? '첫 장은 뉴스 주제에 어울리는 배경을 깔면 눈에 잘 띄어요. 제목이 잘 보이도록 위쪽은 자동으로 흐리게 처리돼요.' : '이 장에도 배경 이미지를 넣을 수 있어요.'}</p>
-      ${cur === 0 ? `<div class="field"><label for="bg-cover">첫 장 스타일</label><select id="bg-cover">${Object.entries(COVER_STYLES).map(([k, v]) => `<option value="${k}" ${k === (st.cover === 'classic' ? 'classic' : (c.coverStyle || env.settings.coverStyle || 'magazine')) ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <label class="row small" style="margin-bottom:8px"><input type="checkbox" id="bg-motif" ${st.motif !== false ? 'checked' : ''}> 사진이 없을 때 주제 일러스트 배경</label>` : ''}
       <div class="row">
         <select id="bg-prov">${Object.entries(IMAGE_PROVIDERS).map(([p, v]) => `<option value="${p}" ${p === env.settings.imageProvider ? 'selected' : ''}>${v.label}${getKeys()[p] ? '' : ' (키 없음)'}</option>`).join('')}</select>
         <button class="btn sm primary" id="bg-ai">🎨 ${cur === 0 ? 'AI 실사 커버 만들기' : 'AI 배경 만들기'}</button>
@@ -760,8 +758,6 @@ async function editorView(id) {
       env.bgs = await loadBgs(c.id);
       fillPanel(); await drawCurrent();
     };
-    $('#bg-cover')?.addEventListener('change', (e) => { delete st.cover; c.coverStyle = e.target.value; persist(); redraw(); $$('#thumbs canvas')[0] && renderCard($$('#thumbs canvas')[0], c, 0, env); });
-    $('#bg-motif')?.addEventListener('change', (e) => { if (e.target.checked) delete st.motif; else st.motif = false; persist(); redraw(); });
     $('#bg-up').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
       try { await setBg(await shrinkToBlob(URL.createObjectURL(f))); toast('배경을 넣었어요.'); } catch { toast('이미지를 읽지 못했어요.', true); }
@@ -807,6 +803,10 @@ async function editorView(id) {
   $('#next').addEventListener('click', () => select(cur + 1));
   $('#e-title').addEventListener('input', (e) => { c.title = e.target.value; persist(); });
   $('#e-status').addEventListener('change', (e) => { c.status = e.target.value; persist(); toast(`상태: ${STATUSES[c.status]}`); });
+  $('#e-theme').addEventListener('change', async (e) => {
+    c.theme = e.target.value; persist(); await drawAll(); await select(cur);
+    if (c.theme === 'magazine' && !env.bgs[`${c.id}:0`]) toast('매거진 첫 장은 1장 편집 패널의 "AI 실사 커버 만들기"로 사진 배경을 넣을 수 있어요.');
+  });
   $('#e-format').addEventListener('change', async (e) => { c.format = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#e-cat').addEventListener('change', async (e) => { c.category = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#cap').addEventListener('input', (e) => { c.caption = e.target.value; persist(); });
@@ -940,8 +940,8 @@ async function settingsView() {
     </div>
     <div class="two">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<div class="field"><label for="img-${k}">${v.label} 모델 이름</label><input type="text" id="img-${k}" value="${esc(s.imageModels?.[k] || v.defaultModel)}"></div>`).join('')}</div>
     <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option><option value="Gmarket" ${s.font === 'Gmarket' ? 'selected' : ''}>G마켓 산스 (매거진 느낌)</option></select></div>
-    <div class="field"><label for="coverstyle">첫 장 기본 스타일</label><select id="coverstyle">${Object.entries(COVER_STYLES).map(([k, v]) => `<option value="${k}" ${k === (s.coverStyle || 'magazine') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 콘텐츠를 만들 때 첫 장 실사 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
+    <div class="field"><label for="decktheme">카드뉴스 디자인 (7장 전체)</label><select id="decktheme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === (s.deckTheme || 'toon') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 매거진 디자인일 때 첫 장 실사 사진 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
     <div class="row">${Object.entries({ bg: '배경', brown: '브라운', pink: '핑크', green: '그린' }).map(([k, l]) => `<label class="small">${l} <input type="color" data-theme="${k}" value="${s.theme[k]}"></label>`).join('')}
       <button class="btn sm" id="theme-reset">기본 색으로</button></div>
   </section>
@@ -971,7 +971,7 @@ async function settingsView() {
     Object.keys(PROVIDERS).forEach((k) => { ns.models[k] = $(`#model-${k}`).value.trim() || PROVIDERS[k].defaultModel; });
     ns.format = $('#format').value;
     ns.autoCover = $('#autocover').checked;
-    ns.coverStyle = $('#coverstyle').value;
+    ns.deckTheme = $('#decktheme').value;
     ns.imageProvider = $('#imgprov').value;
     ns.imageModels = Object.fromEntries(Object.entries(IMAGE_PROVIDERS).map(([k, v]) => [k, $(`#img-${k}`).value.trim() || v.defaultModel]));
     $$('[data-theme]').forEach((i) => { ns.theme[i.dataset.theme] = i.value; });
