@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
   provider: 'claude',
   models: Object.fromEntries(Object.entries(PROVIDERS).map(([k, p]) => [k, p.defaultModel])),
   webSearch: false,
+  readArticle: true, // 뉴스로 만들 때 AI가 기사 원문을 직접 읽고 분석
   font: 'Pretendard',
   handle: '@moa.story',
   brand: 'MOA | 모아',

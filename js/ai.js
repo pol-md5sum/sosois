@@ -90,13 +90,26 @@ export const POSES = {
   explain: '설명', wave: '손흔들기', heart: '하트', ok: 'OK',
 };
 
+// 6장(LIFE/CHECK)에 들어갈 실용 정보 유형 — 뉴스 성격에 맞는 것을 고른다
+export const PRACTICAL_KINDS = {
+  none: { label: '일반', title: '' },
+  checklist: { label: '체크리스트', title: '지금 해볼 것', tag: 'CHECK' },
+  timeline: { label: '일정·타임라인', title: '언제부터 바뀌어?', tag: 'TIMELINE' },
+  howto: { label: '신청·이용 방법', title: '이렇게 하면 돼', tag: 'HOW TO' },
+  numbers: { label: '숫자로 보기', title: '숫자로 보면', tag: 'NUMBERS' },
+  qa: { label: 'Q&A', title: '이거 궁금했지?', tag: 'Q&A' },
+  glossary: { label: '용어 풀이', title: '이 말 무슨 뜻?', tag: 'WORDS' },
+  proscons: { label: '찬반·다른 시각', title: '생각이 갈려', tag: 'VIEWS' },
+  related: { label: '관련 보도', title: '다른 데선 이렇게 봤어', tag: 'MORE' },
+};
+
 export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta'];
 
 const str = { type: 'string' };
 const CARD_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'title', 'body', 'highlight', 'items', 'number', 'numberLabel', 'compare', 'layout', 'pose', 'moaSays'],
+  required: ['type', 'title', 'body', 'highlight', 'items', 'number', 'numberLabel', 'compare', 'layout', 'pose', 'moaSays', 'kind'],
   properties: {
     type: { type: 'string', enum: CARD_TYPES },
     title: str,
@@ -114,6 +127,7 @@ const CARD_SCHEMA = {
     layout: { type: 'string', enum: LAYOUTS },
     pose: { type: 'string', enum: Object.keys(POSES) },
     moaSays: str,
+    kind: { type: 'string', enum: Object.keys(PRACTICAL_KINDS) },
   },
 };
 
@@ -173,9 +187,18 @@ export const SYSTEM_PROMPT = `너는 인스타그램 카드뉴스 브랜드 "MOA
 1 HOOK: 위 헤드라인 규칙
 2 WHAT: 무슨 일인지 한두 문장
 3 WHY: 왜 화제인지 한두 문장
-4 SO WHAT: 나한테 무슨 상관인지
+4 SO WHAT: 기사에 나온 사실로 "누가, 언제부터, 얼마나" 영향을 받는지. 영향받는 사람을 2~3그룹(예: 직장인·대출자·자영업자·학생·부모)으로 나눠 items에 "그룹: 구체적 변화" 형식으로 쓴다. 기사에 숫자·날짜가 있으면 반드시 넣는다. 전후 비교가 핵심이면 compare를 쓴다.
 5 MOA'S PICK: 핵심 3가지 (items 3개, 서로 다른 내용)
-6 LIFE/CHECK: 지금 할 일 체크리스트 (items 2~4개)
+6 LIFE/CHECK: 이 뉴스를 본 사람에게 실제로 쓸모 있는 정보. kind로 유형을 고르고 items를 "라벨: 내용" 형식으로 2~4개 쓴다.
+   - timeline(언제부터 무엇이 바뀌는지: "11월 20일: 신청 시작"), howto(신청·이용 방법: "대상: 연소득 5천 이하"), numbers(핵심 수치: "2.25%: 기준금리"),
+     qa(독자가 궁금할 질문: "나도 받아?: 만 19~34세면 대상"), glossary(어려운 용어: "기준금리: 은행 이자의 기준이 되는 금리"),
+     proscons(찬반·다른 시각: "찬성: …", "우려: …"), related(관련 보도: "언론사: 핵심 한 줄"), checklist(지금 할 일: "확인: 내 대출이 변동금리인지")
+   - 정책·제도면 timeline/howto, 경제 수치면 numbers, 어려운 개념이면 glossary, 논쟁적이면 proscons를 우선한다.
+   - title은 유형에 맞게 짧게(예: "언제부터 바뀌어?", "이렇게 신청해"). 기사에 근거 없는 내용은 쓰지 않는다.
+   - 다른 장에서 쓰지 않는 장은 kind를 "none"으로 둔다.
+
+[금지 — 어떤 뉴스에나 붙일 수 있는 빈말]
+"관심을 가져보세요", "확인해 보세요", "지켜봐야 해요", "나와 관련 있는지 따져보기", "원문 기사 확인하기", "앞으로가 주목돼요"처럼 내용 없는 문장은 쓰지 않는다. 모든 장에는 이 기사에서만 나오는 구체적 사실(누가·무엇·숫자·날짜·조건)이 하나 이상 있어야 한다.
 7 CTA: 저장/공유/팔로우 유도
 
 [카드 필드]
@@ -213,8 +236,9 @@ export function buildContentPrompt(news, opts = {}) {
   if (opts.fromUrl && news.url) {
     lines.push('');
     lines.push(`기사 URL: ${news.url}`);
-    lines.push('위 URL의 기사를 직접 열어 읽고, 그 기사 내용만을 근거로 작성해. 기사 제목·언론사·날짜를 확인해서 title과 sources에 넣어.');
-    lines.push(`category는 기사 내용에 가장 맞는 것으로 골라: ${TOPIC_KEYS().join(', ')} (사건·사고·소송·제재는 NEWS).`);
+    lines.push('위 URL의 기사를 직접 열어 본문을 읽고, 그 기사 내용(수치·날짜·대상·조건)을 근거로 작성해. 기사 제목·언론사·날짜를 확인해서 sources에 넣어.');
+    lines.push('URL이 뉴스 모음 사이트의 중간 링크라 열리지 않으면, 제목으로 검색해 같은 기사의 원문을 찾아 읽어.');
+    if (!news.category) lines.push(`category는 기사 내용에 가장 맞는 것으로 골라: ${TOPIC_KEYS().join(', ')} (사건·사고·소송·제재는 NEWS).`);
     lines.push('기사를 열 수 없으면 지어내지 말고 factNotes에 "기사를 열 수 없음"이라고 쓰고, 확인 가능한 범위에서만 작성해.');
   } else if (opts.webSearch) {
     lines.push('');
@@ -421,6 +445,7 @@ export function normalizeContent(raw, news = {}) {
       layout: LAYOUTS.includes(card.layout) ? card.layout : 'auto',
       pose: POSES[card.pose] ? card.pose : DEFAULT_POSE[type],
       moaSays: clampText(card.moaSays, 24),
+      kind: PRACTICAL_KINDS[card.kind] ? card.kind : (type === 'LIFE/CHECK' ? 'checklist' : 'none'),
       style: {},
     };
   });
@@ -432,11 +457,23 @@ export function normalizeContent(raw, news = {}) {
 }
 
 // ---------- 템플릿 모드 (AI 키가 없을 때) ----------
+// 제목에서 의미 있는 단어(2~8자) 뽑기
+function keywordsOf(text) {
+  const stop = new Set(['이번', '오늘', '관련', '대한', '위해', '통해', '것으로', '했다', '한다', '있다', '없다', '에서', '으로', '까지']);
+  return dedupeTexts((String(text).match(/[가-힣A-Za-z0-9]{2,8}/g) || []).filter((w) => !stop.has(w))).slice(0, 5);
+}
+
 export function templateContent(news, { handle = '@moa.story' } = {}) {
   const title = (news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
   const short = title.length > 26 ? `${title.slice(0, 24)}…` : title;
   // 대표 기사와 같은 내용(따옴표·언론사 표기만 다른 제목)은 관련 보도에서 뺀다
-  const related = dedupeTexts([title, ...(news.sources || []).map((s) => s.title)]).slice(1, 4);
+  const relatedAll = dedupeTexts([title, ...(news.sources || []).map((s) => s.title)]).slice(1, 4);
+  const related = relatedAll;
+  // 제목·관련 보도에 나온 숫자(금액·비율·날짜)를 문맥과 함께 뽑는다
+  const numberFacts = dedupeTexts([title, ...relatedAll].flatMap((t) => [...t.matchAll(/(\d[\d,.]*\s?(?:조|억|만|천)?\s?(?:원|%|명|건|배|년|월|일|개|곳)?)/g)]
+    .filter((m) => /\d/.test(m[1]) && m[1].trim().length >= 2)
+    .map((m) => `${m[1].trim()}: ${t.replace(m[1], '').replace(/\s+/g, ' ').trim().slice(0, 22)}`))).slice(0, 3);
+  const relatedSrc = related.map((t) => (news.sources || []).find((s) => s.title === t)?.name || '');
   const srcName = news.source || news.sources?.[0]?.name || '';
   const cat = CATEGORIES[news.category] ? news.category : 'NEWS';
   const kw = (title.match(/[가-힣A-Za-z0-9]{2,8}/g) || ['이슈'])[0];
@@ -448,9 +485,13 @@ export function templateContent(news, { handle = '@moa.story' } = {}) {
       { type: 'HOOK', title: `다들 '${kw}' 얘기, 왜?`, body: '끝까지 보면 알려줄게요', highlight: kw, layout: 'big', moaSays: '이거 봤어요?' },
       { type: 'WHAT', title: '무슨 일이냐면요', body: short, highlight: kw, layout: 'text', moaSays: '정리해 볼게요' },
       { type: 'WHY', title: '왜 화제일까요?', body: related.length ? `여러 매체가 동시에 다루고 있어요. ${related[0].slice(0, 50)}` : '많은 사람들의 생활과 맞닿아 있는 이슈라서 관심이 커지고 있어요.', layout: 'text', moaSays: '흠, 그렇구나' },
-      { type: 'SO WHAT', title: '우리에겐 어떤 의미?', body: '내 일상에 바로 영향이 있는지, 앞으로 무엇이 바뀌는지 한 번 확인해 보세요.', layout: 'text', moaSays: '이게 포인트!' },
-      { type: "MOA'S PICK", title: "모아's PICK 3", items: dedupeTexts([short.slice(0, 24), related[0]?.slice(0, 24), related[1]?.slice(0, 24), '관련 보도가 이어지는 중', '공식 발표·원문 확인 필요']).slice(0, 3), layout: 'list', moaSays: '핵심만 쏙!' },
-      { type: 'LIFE/CHECK', title: '이것만 체크!', items: ['원문 기사 한 번 더 확인하기', '나와 관련 있는지 따져보기', '공식 발표 업데이트 지켜보기'], layout: 'list', moaSays: '체크 완료!' },
+      related.length
+        ? { type: 'SO WHAT', title: '다른 데선 이렇게 봤어', items: related.slice(0, 3).map((t, i) => `${relatedSrc[i] || '관련 보도'}: ${t.slice(0, 26)}`), layout: 'list', kind: 'related', moaSays: '여러 곳에서 다뤘어' }
+        : { type: 'SO WHAT', title: '나한테 무슨 상관?', body: '기사 내용을 넣거나 AI로 만들면 누가, 언제부터, 얼마나 영향을 받는지 정리해 줄게요.', layout: 'text', moaSays: '내용이 더 필요해!' },
+      { type: "MOA'S PICK", title: "모아's PICK 3", items: dedupeTexts([short.slice(0, 24), (news.sources || []).length > 1 ? `${new Set((news.sources || []).map((x) => x.name).filter(Boolean)).size}곳 넘게 보도한 이슈` : '', `핵심 단어: ${keywordsOf(title).slice(0, 3).join('·')}`].filter(Boolean)).slice(0, 3), layout: 'list', moaSays: '핵심만 쏙!' },
+      numberFacts.length
+        ? { type: 'LIFE/CHECK', title: '숫자로 보면', kind: 'numbers', items: numberFacts, layout: 'list', moaSays: '숫자가 말해줘' }
+        : { type: 'LIFE/CHECK', title: '더 알고 싶다면', kind: 'none', body: 'AI 키를 넣고 다시 만들면 일정·신청 방법·용어 풀이처럼 이 기사에 맞는 정보로 채워져요.', layout: 'text', moaSays: '조금만 기다려!' },
       { type: 'CTA', title: '유용했다면\n저장해 두세요', body: '매일 모아가 쉬운 뉴스로 찾아올게요', layout: 'cta', moaSays: '또 만나요!' },
     ],
     moaComment: '어려운 뉴스, 모아가 쉽게 알려줄게요!',
@@ -458,7 +499,7 @@ export function templateContent(news, { handle = '@moa.story' } = {}) {
     caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 ${handle} 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
     hashtags: ['모아뉴스', '카드뉴스', ...CATEGORIES[cat].tags, kw, '정보공유'],
     sources: [],
-    factNotes: ['템플릿 모드로 생성되어 기사 내용이 충분히 반영되지 않았습니다. 본문을 직접 수정해 주세요.'],
+    factNotes: ['템플릿 모드(AI 미사용)라 기사 본문을 분석하지 못했어요. 4장·6장은 관련 보도와 핵심 단어만 넣었으니 직접 채우거나, 설정에서 AI 키를 넣고 다시 만들면 기사 내용을 분석해 채워져요.'],
   };
   return normalizeContent(raw, news);
 }

@@ -1,7 +1,7 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
@@ -371,7 +371,8 @@ async function createView() {
       <h3>AI 모델</h3>
       <div class="seg" id="prov">${Object.entries(PROVIDERS).map(([k, p]) => `<button type="button" data-p="${k}" class="${k === s.provider ? 'on' : ''}">${p.label}${keys[k] ? '' : ' ·키 없음'}</button>`).join('')}</div>
       <p class="small muted" id="prov-model"></p>
-      <label class="row small" style="margin:10px 0"><input type="checkbox" id="websearch" ${s.webSearch ? 'checked' : ''}> 웹 검색으로 사실 확인 (더 정확, 더 느림)</label>
+      <label class="row small" style="margin:10px 0 4px"><input type="checkbox" id="readarticle" ${s.readArticle !== false ? 'checked' : ''}> 기사 원문을 AI가 직접 읽고 분석 (권장 · 링크가 있을 때)</label>
+      <label class="row small" style="margin:4px 0 10px"><input type="checkbox" id="websearch" ${s.webSearch ? 'checked' : ''}> 웹 검색으로 사실 확인 (더 정확, 더 느림)</label>
       <div class="row" style="flex-direction:column;align-items:stretch">
         <button class="btn primary big" id="go">✨ 자동으로 만들어줘</button>
         <button class="btn" id="cmp">⚖️ GPT · Gemini · Claude 비교하기</button>
@@ -446,7 +447,7 @@ async function createView() {
   $('#go').addEventListener('click', async () => {
     const nn = guard(); if (!nn) return;
     if (!keys[provider]) { toast(`${PROVIDERS[provider].label} API 키가 없어요. 설정에서 넣거나 템플릿으로 만들어 주세요.`, true); return; }
-    const c = await runGenerate([nn], provider, { webSearch: $('#websearch').checked, extra: $('#n-extra').value.trim() });
+    const c = await runGenerate([nn], provider, { webSearch: $('#websearch').checked, readArticle: $('#readarticle').checked, extra: $('#n-extra').value.trim() });
     if (c[0]) location.hash = `#/editor/${c[0].id}`;
   });
   $('#tpl').addEventListener('click', async () => {
@@ -463,6 +464,8 @@ async function createView() {
 async function generateContent(news, provider, opts = {}) {
   const s = getSettings();
   let body;
+  // 기사 링크가 있으면 AI가 원문을 직접 읽고 분석하게 한다 (설정에서 끌 수 있음)
+  if (provider !== 'template' && s.readArticle !== false && news.url && !opts.images?.length && opts.readArticle !== false) opts = { ...opts, fromUrl: true };
   if (provider === 'template') {
     body = templateContent(news, { handle: s.handle });
   } else {
@@ -712,6 +715,7 @@ async function editorView(id) {
         <div class="field"><label>레이아웃</label><select data-k="layout">${LAYOUTS.map((l) => `<option value="${l}" ${l === k.layout ? 'selected' : ''}>${LAYOUT_LABEL[l]}${l === 'auto' ? ` (${LAYOUT_LABEL[lay]})` : ''}</option>`).join('')}</select></div>
         <div class="field"><label>모아 포즈</label><select data-k="pose">${Object.entries(POSES).map(([p, l]) => `<option value="${p}" ${p === k.pose ? 'selected' : ''}>${l}${p === DEFAULT_POSE[k.type] ? ' (추천)' : ''}</option>`).join('')}</select></div>
       </div>
+      ${k.type === 'LIFE/CHECK' || k.type === 'SO WHAT' ? `<div class="field"><label>정보 유형 (리스트는 "라벨: 내용" 형식이면 라벨이 강조돼요)</label><select data-k="kind">${Object.entries(PRACTICAL_KINDS).map(([kk, v]) => `<option value="${kk}" ${kk === (k.kind || 'none') ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>제목</label><textarea data-k="title" rows="2">${esc(k.title)}</textarea></div>
       <div class="field"><label>본문</label><textarea data-k="body" rows="3">${esc(k.body)}</textarea></div>
       <div class="field"><label>강조 문구 (제목·본문 안의 단어)</label><input type="text" data-k="highlight" value="${esc(k.highlight)}"></div>
@@ -926,6 +930,7 @@ async function settingsView() {
         <div class="field"><label for="key-${k}">${p.label} API 키</label><input type="password" id="key-${k}" value="${esc(keys[k] || '')}" placeholder="${{ claude: 'sk-ant-…', gpt: 'sk-…', gemini: 'AIza…' }[k]}" autocomplete="off"></div>
         <div class="field"><label for="model-${k}">${p.label} 모델 이름</label><div class="row" style="flex-wrap:nowrap"><input type="text" id="model-${k}" value="${esc(s.models[k])}"><button class="btn sm" data-test="${k}">연결 테스트</button></div></div>
       </div>`).join('')}
+    <label class="row small"><input type="checkbox" id="readart" ${s.readArticle !== false ? 'checked' : ''}> 뉴스로 만들 때 AI가 기사 원문을 직접 읽고 분석 (권장, 조금 더 느림)</label>
     <label class="row small"><input type="checkbox" id="ws" ${s.webSearch ? 'checked' : ''}> 기본으로 웹 검색 사실 확인 사용</label>
   </section>
   <section class="panel" style="margin-top:16px">
@@ -972,7 +977,7 @@ async function settingsView() {
   let prov = s.provider;
   $$('#defprov button').forEach((b) => b.addEventListener('click', () => { prov = b.dataset.p; $$('#defprov button').forEach((x) => x.classList.toggle('on', x === b)); }));
   const collect = () => {
-    const ns = { ...s, provider: prov, webSearch: $('#ws').checked, brand: $('#brand').value.trim() || 'MOA | 모아', handle: $('#handle').value.trim(), font: $('#font').value, models: {}, theme: { ...s.theme } };
+    const ns = { ...s, provider: prov, webSearch: $('#ws').checked, readArticle: $('#readart').checked, brand: $('#brand').value.trim() || 'MOA | 모아', handle: $('#handle').value.trim(), font: $('#font').value, models: {}, theme: { ...s.theme } };
     Object.keys(PROVIDERS).forEach((k) => { ns.models[k] = $(`#model-${k}`).value.trim() || PROVIDERS[k].defaultModel; });
     ns.format = $('#format').value;
     ns.autoCover = $('#autocover').checked;
