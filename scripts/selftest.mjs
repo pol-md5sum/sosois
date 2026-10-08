@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { parseRss, cluster, scoreCluster, classify, selectBalanced, hardNewsOverride } from './fetch-news.mjs';
-import { normalizeContent, templateContent, extractJson, heuristicScore, buildContentPrompt, CARD_TYPES } from '../js/ai.js';
+import { isSimilar, normalizeContent, templateContent, extractJson, heuristicScore, buildContentPrompt, CARD_TYPES } from '../js/ai.js';
 
 const xml = await readFile(new URL('./fixtures/gnews.xml', import.meta.url), 'utf8');
 const items = parseRss(xml).map((x) => ({ ...x, category: 'NEWS' }));
@@ -47,4 +47,12 @@ assert.equal(bal.filter((x) => x.category === 'BEAUTY').length, 3, '점수가 �
 assert.equal(hardNewsOverride("'개인정보 유출' 쿠팡, 6200억대 과징금 불복해 소송 제기", 'SHOPPING'), 'NEWS');
 assert.equal(hardNewsOverride('쿠팡 블랙프라이데이 최대 70% 할인', 'SHOPPING'), 'SHOPPING');
 assert.equal(hardNewsOverride('한은 기준금리 동결 논란', 'MONEY'), 'MONEY');
+// 따옴표 종류만 다른 같은 제목은 한 번만
+const dupNews = { category: 'NEWS', title: "‘개인정보 유출’ 쿠팡, 6200억대 과징금 불복해 소송 제기", url: 'u', source: 'A',
+  sources: [{ name: 'A', title: "‘개인정보 유출’ 쿠팡, 6200억대 과징금 불복해 소송 제기" }, { name: 'B', title: "'개인정보 유출' 쿠팡, 6200억대 과징금 불복해 소송 제기 - B" }, { name: 'C', title: '쿠팡 과징금 행정소송, 개인정보위와 법정 공방' }] };
+const pick = templateContent(dupNews).cards[4].items;
+assert.equal(pick.length, 3);
+for (let i = 0; i < pick.length; i++) for (let j = i + 1; j < pick.length; j++) assert.ok(!isSimilar(pick[i], pick[j]), `중복 항목: ${pick[i]} / ${pick[j]}`);
+const n2 = normalizeContent({ cards: [{}, {}, {}, {}, { items: ['A 항목입니다', 'A 항목입니다!', 'B 다른 항목'] }] });
+assert.equal(n2.cards[4].items.length, 2);
 console.log('selftest OK');

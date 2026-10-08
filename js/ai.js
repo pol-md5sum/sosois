@@ -315,6 +315,26 @@ export async function callModel(provider, opts) {
 }
 
 // ---------- 결과 정규화 ----------
+// 따옴표·기호·띄어쓰기 차이를 무시하고 비슷한 문장인지 판단한다
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
+const tokenSet = (s) => new Set(String(s || '').toLowerCase().match(/[가-힣a-z0-9]{2,}/g) || []);
+export function isSimilar(a, b) {
+  const ka = normKey(a);
+  const kb = normKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb || ka.includes(kb) || kb.includes(ka)) return true;
+  const ta = tokenSet(a);
+  const tb = tokenSet(b);
+  let inter = 0;
+  for (const w of ta) if (tb.has(w)) inter++;
+  return inter / Math.min(ta.size || 1, tb.size || 1) >= 0.7;
+}
+export function dedupeTexts(list) {
+  const out = [];
+  for (const t of list) if (t && !out.some((x) => isSimilar(x, t))) out.push(t);
+  return out;
+}
+
 const clampText = (s, n) => (typeof s === 'string' ? s.trim().slice(0, n) : '');
 
 export function normalizeContent(raw, news = {}) {
@@ -342,7 +362,7 @@ export function normalizeContent(raw, news = {}) {
       title: clampText(card.title, 60),
       body: clampText(card.body, 220),
       highlight: clampText(card.highlight, 20),
-      items: (Array.isArray(card.items) ? card.items : []).map((s) => clampText(s, 40)).filter(Boolean).slice(0, 5),
+      items: dedupeTexts((Array.isArray(card.items) ? card.items : []).map((s) => clampText(s, 40)).filter(Boolean)).slice(0, 5),
       number: clampText(card.number, 12),
       numberLabel: clampText(card.numberLabel, 24),
       compare: {
@@ -366,7 +386,8 @@ export function normalizeContent(raw, news = {}) {
 export function templateContent(news) {
   const title = (news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
   const short = title.length > 26 ? `${title.slice(0, 24)}…` : title;
-  const related = (news.sources || []).map((s) => s.title).filter((t) => t && t !== news.title).slice(0, 3);
+  // 대표 기사와 같은 내용(따옴표·언론사 표기만 다른 제목)은 관련 보도에서 뺀다
+  const related = dedupeTexts([title, ...(news.sources || []).map((s) => s.title)]).slice(1, 4);
   const srcName = news.source || news.sources?.[0]?.name || '';
   const cat = CATEGORIES[news.category] ? news.category : 'NEWS';
   const kw = (title.match(/[가-힣A-Za-z0-9]{2,8}/g) || ['이슈'])[0];
@@ -379,7 +400,7 @@ export function templateContent(news) {
       { type: 'WHAT', title: '무슨 일이냐면요', body: short, highlight: kw, layout: 'text', moaSays: '정리해 볼게요' },
       { type: 'WHY', title: '왜 화제일까요?', body: related.length ? `여러 매체가 동시에 다루고 있어요. ${related[0].slice(0, 50)}` : '많은 사람들의 생활과 맞닿아 있는 이슈라서 관심이 커지고 있어요.', layout: 'text', moaSays: '흠, 그렇구나' },
       { type: 'SO WHAT', title: '우리에겐 어떤 의미?', body: '내 일상에 바로 영향이 있는지, 앞으로 무엇이 바뀌는지 한 번 확인해 보세요.', layout: 'text', moaSays: '이게 포인트!' },
-      { type: "MOA'S PICK", title: "모아's PICK 3", items: [short.slice(0, 24), related[0]?.slice(0, 24) || '관련 보도가 이어지는 중', '공식 발표·원문 확인 필요'], layout: 'list', moaSays: '핵심만 쏙!' },
+      { type: "MOA'S PICK", title: "모아's PICK 3", items: dedupeTexts([short.slice(0, 24), related[0]?.slice(0, 24), related[1]?.slice(0, 24), '관련 보도가 이어지는 중', '공식 발표·원문 확인 필요']).slice(0, 3), layout: 'list', moaSays: '핵심만 쏙!' },
       { type: 'LIFE/CHECK', title: '이것만 체크!', items: ['원문 기사 한 번 더 확인하기', '나와 관련 있는지 따져보기', '공식 발표 업데이트 지켜보기'], layout: 'list', moaSays: '체크 완료!' },
       { type: 'CTA', title: '유용했다면\n저장해 두세요', body: '매일 모아가 쉬운 뉴스로 찾아올게요', layout: 'cta', moaSays: '또 만나요!' },
     ],
