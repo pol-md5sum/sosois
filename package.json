@@ -1,0 +1,1 @@
+{ "name": "moa-content-studio", "private": true, "type": "module", "scripts": { "news": "node scripts/fetch-news.mjs", "test": "node scripts/selftest.mjs" } }
