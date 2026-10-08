@@ -1,12 +1,22 @@
 // 1080×1080 카드뉴스 캔버스 렌더러
 import { CATEGORIES, DEFAULT_POSE } from './ai.js';
 
-export const SIZE = 1080;
+export const SIZE = 1080; // 가로 폭
+// 인스타그램 세로형 비율 (기본 4:5)
+export const FORMATS = {
+  '1080x1350': { w: 1080, h: 1350, label: '4:5 · 1080×1350 (추천)' },
+  '1080x1440': { w: 1080, h: 1440, label: '3:4 · 1080×1440' },
+  '1080x1080': { w: 1080, h: 1080, label: '1:1 · 1080×1080' },
+};
+export const DEFAULT_FORMAT = '1080x1350';
+let H = 1080; // 현재 그리는 카드의 세로 길이 (renderCard에서 설정)
+export const cardHeight = (content, settings) => (FORMATS[content?.format] || FORMATS[settings?.format] || FORMATS[DEFAULT_FORMAT]).h;
 const PAD = 80;
 
 const FONT_STACK = {
   Pretendard: '"Pretendard Variable", Pretendard, "SUIT Variable", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
   SUIT: '"SUIT Variable", SUIT, "Pretendard Variable", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
+  Gmarket: '"GmarketSans", "Pretendard Variable", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
 };
 
 // ---------- 레이아웃 자동 선택 (기획안 14항) ----------
@@ -34,10 +44,11 @@ const MOA_DEFAULT = {
 // ---------- 폰트 ----------
 export async function ensureFonts(family, texts) {
   if (!document.fonts?.load) return;
-  const fam = family === 'SUIT' ? '"SUIT Variable"' : '"Pretendard Variable"';
+  const fam = family === 'SUIT' ? '"SUIT Variable"' : family === 'Gmarket' ? '"GmarketSans"' : '"Pretendard Variable"';
   const sample = [...new Set(texts.join('').replace(/\s/g, ''))].join('') || '가';
   try {
-    await Promise.all([400, 600, 800].map((w) => document.fonts.load(`${w} 40px ${fam}`, sample)));
+    await Promise.all([400, 600, 800, 900].map((w) => document.fonts.load(`${w} 40px ${fam}`, sample)));
+    if (fam !== '"Pretendard Variable"') await document.fonts.load('800 40px "Pretendard Variable"', sample);
   } catch { /* 폰트를 못 불러오면 시스템 폰트로 그린다 */ }
 }
 
@@ -269,7 +280,7 @@ function moaBox(img, pos, size) {
   const w = h * ratio;
   const m = 46;
   const x = pos.endsWith('l') ? m : pos === 'bc' || pos === 'tc' ? (SIZE - w) / 2 : SIZE - m - w;
-  const y = pos.startsWith('t') ? 150 : SIZE - 34 - h;
+  const y = pos.startsWith('t') ? 150 : H - 34 - h;
   return { x, y, w, h };
 }
 
@@ -350,23 +361,49 @@ export async function renderCard(canvas, content, index, env) {
     ...(card.items || []), ...Object.values(card.compare || {}), content.title, settings.handle, settings.brand,
     (content.sources || []).map((s) => s.name).join(''), '01/07 MOA NEWS TREND AI LIFE MONEY FOOD BEAUTY CULTURE SHOPPING PICK CHECK WHAT WHY SO 저장 공유 팔로우 출처']);
 
-  canvas.width = SIZE; canvas.height = SIZE;
+  H = cardHeight(content, settings);
+  canvas.width = SIZE; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.clearRect(0, 0, SIZE, H);
+
+  // 덱 전체 디자인: 인스타툰 / 매거진 (선택한 대로 7장 모두 적용)
+  const theme = deckTheme(content, settings);
+  if (!st.bare && theme !== 'classic') {
+    const o = { card, st, settings, env, t, family, fontScale, layout, index };
+    if (theme === 'magazine') await renderMagazine(ctx, content, o);
+    else await renderToon(ctx, content, o);
+    return canvas;
+  }
 
   // 배경
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, H);
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = t.green; ctx.beginPath(); ctx.arc(SIZE + 40, -40, 260, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(-80, SIZE - 120, 220, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(-80, H - 120, 220, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 0.18; ctx.fillStyle = t.brown;
-  for (let y = 120; y < SIZE; y += 44) for (let x = 40 + ((y / 44) % 2) * 22; x < SIZE; x += 44) {
-    if (x > 980 || y > 1040) continue;
+  for (let y = 120; y < H; y += 44) for (let x = 40 + ((y / 44) % 2) * 22; x < SIZE; x += 44) {
+    if (x > 980 || y > H - 40) continue;
     if ((x * 7 + y * 3) % 5 !== 0) continue;
     ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
+
+  // 첫 장(또는 사용자가 배경을 넣은 장): 주제에 맞는 배경
+  const bgImg = env.bgs?.[`${content.id}:${index}`];
+  // 첫 장 스타일: 사진 매거진 / 캐릭터 썸네일 / 기본
+  const coverStyle = st.cover === 'classic' ? 'classic' : (content.coverStyle || settings.coverStyle || 'magazine');
+  if (index === 0 && coverStyle === 'character') {
+    await drawCharacterCover(ctx, content, card, { family, t, settings, env, fontScale, pos: st.moaPos });
+    return canvas;
+  }
+  // 첫 장 + 사진 배경 → 매거진 커버 스타일 (사진 위 흰색 굵은 제목)
+  if (bgImg && index === 0 && coverStyle === 'magazine') {
+    drawMagazineCover(ctx, content, card, bgImg, { family, t, settings, env, pos: st.moaPos || 'br', moaScale: 0.62 * (st.moaScale || 1), fontScale });
+    return canvas;
+  }
+  if (bgImg) drawCoverImage(ctx, bgImg, bg);
+  else if (index === 0 && st.motif !== false) { drawMotif(ctx, content.category, t); fadeTop(ctx, bg); }
 
   if (st.bare) {
     const b = moaBox(env.moa, pos, moaSize);
@@ -412,7 +449,7 @@ export async function renderCard(canvas, content, index, env) {
   const ctxText = { family, t, textColor, fontScale, span };
   let y = 170;
   const label = card.type === "MOA'S PICK" ? "MOA'S PICK" : card.type;
-  if (layout !== 'big' && layout !== 'cta') y = drawLabel(ctx, label, y, ctxText);
+  if (layout !== 'big' && layout !== 'cta' && !st.hideLabel) y = drawLabel(ctx, label, y, ctxText);
 
   const L = { big: layBig, text: layText, list: layList, number: layNumber, compare: layCompare, keyword: layKeyword, cta: layCta }[layout] || layText;
   L(ctx, card, y, ctxText, content, settings);
@@ -421,15 +458,15 @@ export async function renderCard(canvas, content, index, env) {
   if ((index === 1 || index === content.cards.length - 1) && content.sources?.length) {
     const src = `출처: ${content.sources.map((s) => s.name).filter(Boolean).slice(0, 3).join(', ')}`;
     ctx.font = `500 22px ${family}`; ctx.fillStyle = shade(t.brown, 0.35);
-    const sp = span(SIZE - 70, SIZE - 40);
+    const sp = span(H - 70, H - 40);
     let s = src;
     while (ctx.measureText(s).width > sp.w && s.length > 4) s = s.slice(0, -1);
-    ctx.fillText(s === src ? s : `${s.slice(0, -1)}…`, sp.l, SIZE - 48);
+    ctx.fillText(s === src ? s : `${s.slice(0, -1)}…`, sp.l, H - 48);
   }
   // 브랜드 표기
   if (index === 0) {
     ctx.font = `700 24px ${family}`; ctx.fillStyle = shade(t.brown, 0.3);
-    ctx.fillText(`${settings.brand}  ${settings.handle}`, PAD, SIZE - 48);
+    ctx.fillText(`${settings.brand}  ${settings.handle}`, PAD, H - 48);
   }
 
   if (showMoa) {
@@ -448,8 +485,16 @@ function drawLabel(ctx, label, y, { family, t }) {
   return y + 76;
 }
 
+const setSpacing = (ctx, px) => { try { ctx.letterSpacing = `${px}px`; } catch { /* 미지원 브라우저 */ } };
+
 function block(ctx, text, y, o, opts) {
   if (!text) return y;
+  // 굵은 제목은 자간을 살짝 좁혀 요즘 매거진 느낌으로
+  setSpacing(ctx, opts.weight >= 800 ? -Math.round(opts.max * 0.025) : 0);
+  try { return blockInner(ctx, text, y, o, opts); } finally { setSpacing(ctx, 0); }
+}
+
+function blockInner(ctx, text, y, o, opts) {
   const { family, span, fontScale } = o;
   const lh = opts.lh || 1.28;
   const widthAt = (i, size) => span(y + i * size * lh, y + (i + 1) * size * lh).w;
@@ -464,10 +509,13 @@ function block(ctx, text, y, o, opts) {
 
 function layBig(ctx, card, y, o) {
   const { t, textColor } = o;
-  ctx.fillStyle = t.pink; ctx.globalAlpha = 0.9;
-  ctx.font = `800 120px ${o.family}`; ctx.fillText('“', PAD - 6, 270);
-  ctx.globalAlpha = 1;
-  let yy = block(ctx, card.title, 260, o, { weight: 800, max: 108, min: 60, maxLines: 4, lh: 1.22, color: textColor, hl: card.highlight, hlColor: t.pink });
+  if (!card.style?.hideLabel && card.type === 'HOOK') {
+    ctx.fillStyle = t.pink; ctx.globalAlpha = 0.9;
+    ctx.font = `800 120px ${o.family}`; ctx.fillText('“', PAD - 6, 270 + Math.round((H - 1080) * 0.35));
+    ctx.globalAlpha = 1;
+  }
+  const top = 260 + Math.round((H - 1080) * 0.35); // 세로형 카드에서는 제목을 조금 내려 시선 중앙에 둔다
+  let yy = block(ctx, card.title, top, o, { weight: 800, max: 108, min: 60, maxLines: 4, lh: 1.22, color: textColor, hl: card.highlight, hlColor: t.pink });
   yy += 28;
   block(ctx, card.body, yy, o, { weight: 500, max: 42, min: 30, maxLines: 3, lh: 1.4, color: shade(textColor, 0.15), hl: card.highlight, hlColor: 'transparent', hlText: '#E07A76' });
 }
@@ -514,7 +562,7 @@ function layList(ctx, card, y, o) {
   yy += 30;
   const items = (card.items || []).slice(0, 5);
   const gap = 20;
-  const avail = 1000 - yy;
+  const avail = H - 80 - yy;
   const rowH = Math.min(132, Math.floor((avail - gap * (items.length - 1)) / Math.max(1, items.length)));
   items.forEach((it, i) => {
     const sp = o.span(yy, yy + rowH);
@@ -570,7 +618,7 @@ function layCompare(ctx, card, y, o) {
   const c = card.compare;
   const gap = 28;
   const w = (SIZE - PAD * 2 - gap) / 2;
-  const h = Math.min(400, 760 - yy);
+  const h = Math.min(460, H - 320 - yy);
   [[c.leftTitle || 'BEFORE', c.left, t.green, PAD], [c.rightTitle || 'AFTER', c.right, t.pink, PAD + w + gap]].forEach(([title, body, color, x]) => {
     ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.shadowColor = 'rgba(111,98,88,0.10)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 8;
@@ -628,6 +676,691 @@ function layCta(ctx, card, y, o, content, settings) {
   });
   ctx.font = `800 32px ${family}`; ctx.fillStyle = textColor; ctx.textAlign = 'center';
   ctx.fillText(settings.handle, SIZE / 2, yy + 196); ctx.textAlign = 'left';
+}
+
+// ---------- 캐릭터 썸네일 커버 (흰 배경 + 큰 제목 + 말풍선 + 모아) ----------
+export const CHARACTER_FONTS = { title: '"Jua", "GmarketSans", "Pretendard Variable", sans-serif', bubble: '"Nanum Pen Script", "Jua", "Pretendard Variable", sans-serif' };
+const NUM_RE = /\d[\d,.]*\s?(만|천|억|조|%|원|년|배|살|대|가지|개)?/g;
+
+async function drawCharacterCover(ctx, content, card, { t, settings, env, fontScale, pos }) {
+  const accent = '#3B7DD8';
+  const title = card.title || content.title;
+  const says = card.moaSays || '';
+  try {
+    await Promise.all([document.fonts.load(`400 80px ${CHARACTER_FONTS.title}`, title), document.fonts.load(`400 40px ${CHARACTER_FONTS.bubble}`, says || '가')]);
+  } catch { /* 폰트 실패 시 대체 폰트 */ }
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, SIZE, H);
+
+  // 제목: 가운데 정렬, 핵심어·숫자는 파란색
+  const fam = CHARACTER_FONTS.title;
+  const maxW = SIZE - 120;
+  setSpacing(ctx, -3);
+  const r = fit(ctx, title, { family: fam, weight: 400, max: Math.round(150 * fontScale), min: 80, maxLines: 3, widthAt: () => maxW });
+  const lh = 1.12;
+  const blockH = r.lines.length * r.size * lh;
+  const top = Math.round(H * 0.1 + (H * 0.42 - blockH) / 2);
+  const flags = new Array(title.length).fill(false);
+  if (card.highlight) { let i = title.indexOf(card.highlight); while (i >= 0) { for (let k = 0; k < card.highlight.length; k++) flags[i + k] = true; i = title.indexOf(card.highlight, i + 1); } }
+  for (const m of title.matchAll(NUM_RE)) for (let k = 0; k < m[0].length; k++) flags[m.index + k] = true;
+  ctx.font = `400 ${r.size}px ${fam}`; ctx.textBaseline = 'alphabetic';
+  r.lines.forEach((ln, i) => {
+    const line = title.slice(ln.start, ln.end);
+    const w = ctx.measureText(line).width;
+    let x = (SIZE - w) / 2;
+    const y = top + r.size + i * r.size * lh;
+    let k = 0;
+    while (k < line.length) {
+      const on = flags[ln.start + k];
+      let j = k;
+      while (j < line.length && flags[ln.start + j] === on) j++;
+      const seg = line.slice(k, j);
+      ctx.fillStyle = on ? accent : '#1E1E1E';
+      ctx.fillText(seg, x, y);
+      x += ctx.measureText(seg).width;
+      k = j;
+    }
+  });
+  setSpacing(ctx, 0);
+
+  // 모아 (오른쪽 아래 크게)
+  const box = moaBox(env.moa, pos === 'bl' ? 'bl' : 'br', 1.0 + ((H - 1080) / 1080) * 1.2); // 세로형일수록 크게
+  if (env.moa) drawMoa(ctx, env, card, box, t, '"Pretendard Variable", sans-serif');
+
+  drawToonBubble(ctx, says, box, pos === 'bl' ? 'left' : 'right');
+
+  // 작은 계정 표기
+  ctx.fillStyle = '#9A9A9A'; ctx.font = `600 24px "Pretendard Variable", sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(settings.handle, PAD - 20, H - 44);
+}
+
+// ---------- 매거진 커버 ----------
+function drawMagazineCover(ctx, content, card, img, { family, t, settings, env, pos, moaScale, fontScale }) {
+  if (img) {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const sc = Math.max(SIZE / iw, H / ih);
+    ctx.drawImage(img, (SIZE - iw * sc) / 2, (H - ih * sc) / 2, iw * sc, ih * sc);
+  } else {
+    // 사진이 없을 때: 짙은 단색 + 주제 색 빛번짐
+    const catC = (CATEGORIES[content.category] || CATEGORIES.NEWS).color || '#6F6258';
+    ctx.fillStyle = '#17130F'; ctx.fillRect(0, 0, SIZE, H);
+    const rg = ctx.createRadialGradient(SIZE * 0.78, H * 0.3, 40, SIZE * 0.78, H * 0.3, SIZE * 0.9);
+    rg.addColorStop(0, `${catC}AA`); rg.addColorStop(1, 'rgba(23,19,15,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, SIZE, H);
+  }
+  // 위·아래 어둡게 (헤더와 제목 가독성)
+  let g = ctx.createLinearGradient(0, 0, 0, 260);
+  g.addColorStop(0, 'rgba(0,0,0,0.38)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, 260);
+  g = ctx.createLinearGradient(0, H * 0.42, 0, H);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.55, 'rgba(0,0,0,0.45)'); g.addColorStop(1, 'rgba(0,0,0,0.78)');
+  ctx.fillStyle = g; ctx.fillRect(0, H * 0.42, SIZE, H * 0.58);
+
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  // 헤더: 브랜드 + 페이지
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.font = `800 30px ${family}`; ctx.textBaseline = 'middle';
+  ctx.fillText(settings.brand, PAD, 86);
+  ctx.textAlign = 'right'; ctx.font = `700 28px ${family}`;
+  ctx.fillText(`1 / ${content.cards.length}`, SIZE - PAD, 86);
+  ctx.textAlign = 'left';
+
+  const maxW = SIZE - PAD * 2 - (pos === 'none' ? 0 : 150);
+  // 제목: 아래에서 위로 쌓는다
+  const title = card.title || content.title;
+  const r = fit(ctx, title, { family, weight: 900, max: Math.round(112 * fontScale), min: 64, maxLines: 3, widthAt: () => maxW });
+  const lh = 1.16;
+  const bodyText = card.body || '';
+  const bodySize = 38;
+  const bottom = H - 120;
+  const bodyH = bodyText ? bodySize * 1.4 + 18 : 0;
+  const titleTop = bottom - bodyH - r.lines.length * r.size * lh;
+  // 키커 라벨 (주제)
+  const kicker = `${cat.name}`;
+  ctx.font = `800 28px ${family}`;
+  const kw = ctx.measureText(kicker).width;
+  const ky = titleTop - 64;
+  ctx.fillStyle = '#FFE45C'; ctx.fillRect(PAD, ky, 16, 16);
+  ctx.fillRect(PAD + 26, ky - 10, kw + 22, 38);
+  ctx.fillStyle = '#1F1A17'; ctx.textBaseline = 'middle'; ctx.fillText(kicker, PAD + 37, ky + 9);
+  ctx.textBaseline = 'alphabetic';
+  // 제목
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 18;
+  try { ctx.letterSpacing = `${-Math.round(r.size * 0.03)}px`; } catch { /* 미지원 브라우저 */ }
+  ctx.font = `900 ${r.size}px ${family}`;
+  drawLines(ctx, title, r.lines, { x: PAD, y: titleTop, size: r.size, lh, color: '#FFFFFF', hl: card.highlight, hlColor: 'rgba(0,0,0,0)', hlText: '#FFE45C', widthAt: () => maxW });
+  ctx.restore();
+  try { ctx.letterSpacing = '0px'; } catch { /* 무시 */ }
+  if (bodyText) {
+    ctx.fillStyle = 'rgba(255,255,255,0.86)'; ctx.font = `600 ${bodySize}px ${family}`;
+    let b = bodyText.replace(/\n/g, ' ');
+    while (ctx.measureText(b).width > maxW && b.length > 2) b = b.slice(0, -1);
+    ctx.fillText(b === bodyText ? b : `${b.slice(0, -1)}…`, PAD, bottom - 4);
+  }
+  // 하단 계정
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = `600 24px ${family}`;
+  ctx.fillText(settings.handle, PAD, H - 52);
+  // 모아는 오른쪽 아래에 작게
+  if (pos !== 'none' && env.moa) {
+    const b = moaBox(env.moa, pos === 'bl' ? 'bl' : 'br', moaScale);
+    drawMoa(ctx, env, card, b, t, family);
+  }
+}
+
+// ---------- 배경 ----------
+function drawCoverImage(ctx, img, bg) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const sc = Math.max(SIZE / iw, H / ih);
+  const w = iw * sc;
+  const h = ih * sc;
+  ctx.drawImage(img, (SIZE - w) / 2, (H - h) / 2, w, h);
+  fadeTop(ctx, bg);
+}
+
+// 제목이 잘 읽히도록 위쪽을 배경색으로 부드럽게 덮는다
+function fadeTop(ctx, bg) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  const c = (a) => {
+    const n = parseInt(bg.slice(1), 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+  g.addColorStop(0, c(0.92));
+  g.addColorStop(0.45, c(0.7));
+  g.addColorStop(0.75, c(0.15));
+  g.addColorStop(1, c(0));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, SIZE, H);
+}
+
+// 주제별 일러스트 배경 (이미지가 없을 때 첫 장에 자동으로 깔림)
+function drawMotif(ctx, category, t) {
+  const col = ({ NEWS: '#8C7F75', TREND: '#E8837E', AI: '#7FA3C8', LIFE: '#8FB58A', MONEY: '#D9A441', FOOD: '#E9A06B', BEAUTY: '#E4A1B9', CULTURE: '#9C8CC4', SHOPPING: '#6FB3A8', MOA: '#F29C9C' })[category] || t.brown;
+  const B = H; // 아래쪽 기준
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const circle = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); };
+  const ring = (x, y, r, w) => { ctx.lineWidth = w; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); };
+  const star = (x, y, r) => { sparkle(ctx, x, y, r); ctx.fill(); };
+  switch (category) {
+    case 'MONEY': {
+      [[170, B - 300, 110], [360, B - 170, 74], [110, B - 120, 58]].forEach(([x, y, r]) => { circle(x, y, r); ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = '#fff'; ring(x, y, r * 0.72, 8); ctx.restore(); });
+      [[700, 330, 70], [790, 270, 130], [880, 200, 200]].forEach(([x, top, hh]) => { roundRect(ctx, x, top + 200 - hh, 64, hh, 14); ctx.fill(); });
+      ctx.lineWidth = 14; ctx.beginPath(); ctx.moveTo(680, 470); ctx.lineTo(800, 380); ctx.lineTo(860, 420); ctx.lineTo(980, 300); ctx.stroke();
+      break;
+    }
+    case 'AI': {
+      const nodes = [[120, B - 420], [300, B - 330], [180, B - 200], [420, B - 150], [90, B - 90]];
+      ctx.lineWidth = 8;
+      nodes.forEach(([x, y], i) => nodes.slice(i + 1, i + 3).forEach(([x2, y2]) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke(); }));
+      nodes.forEach(([x, y]) => circle(x, y, 26));
+      roundRect(ctx, 760, 190, 200, 200, 36); ctx.fill();
+      ctx.lineWidth = 12;
+      for (let i = 0; i < 4; i++) { const o = 220 + i * 45; ctx.beginPath(); ctx.moveTo(o + 560, 160); ctx.lineTo(o + 560, 190); ctx.moveTo(o + 560, 390); ctx.lineTo(o + 560, 420); ctx.stroke(); }
+      break;
+    }
+    case 'FOOD': {
+      ctx.beginPath(); ctx.arc(220, B - 260, 170, 0, Math.PI); ctx.fill();
+      roundRect(ctx, 40, B - 280, 360, 30, 15); ctx.fill();
+      ctx.lineWidth = 12;
+      [150, 220, 290].forEach((x) => { ctx.beginPath(); ctx.moveTo(x, B - 330); ctx.bezierCurveTo(x - 30, B - 380, x + 30, B - 420, x, B - 470); ctx.stroke(); });
+      ctx.beginPath(); ctx.moveTo(840, 180); ctx.lineTo(960, 390); ctx.lineTo(720, 390); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'BEAUTY': {
+      roundRect(ctx, 150, B - 470, 110, 150, 40); ctx.fill();
+      roundRect(ctx, 130, B - 330, 150, 230, 24); ctx.fill();
+      [[380, B - 260, 46], [460, B - 380, 28], [330, B - 420, 20], [820, 260, 60], [930, 380, 34]].forEach(([x, y, r]) => ring(x, y, r, 8));
+      star(760, 400, 40); star(560, B - 140, 30);
+      break;
+    }
+    case 'CULTURE': {
+      ctx.save(); ctx.translate(250, B - 280); ctx.rotate(-0.35);
+      roundRect(ctx, -260, -90, 520, 180, 20); ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      for (let i = -220; i < 240; i += 70) { roundRect(ctx, i, -76, 34, 24, 6); ctx.fill(); roundRect(ctx, i, 52, 34, 24, 6); ctx.fill(); }
+      ctx.restore();
+      star(820, 240, 56); star(930, 380, 32); star(700, 360, 26);
+      break;
+    }
+    case 'SHOPPING': {
+      [[90, B - 380, 230, 260], [280, B - 290, 180, 200]].forEach(([x, y, w, hh]) => {
+        roundRect(ctx, x, y, w, hh, 22); ctx.fill();
+        ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(x + w / 2, y, w * 0.24, Math.PI, 0); ctx.stroke();
+      });
+      ctx.save(); ctx.translate(840, 290); ctx.rotate(0.4);
+      roundRect(ctx, -90, -60, 180, 120, 22); ctx.fill();
+      ctx.restore();
+      break;
+    }
+    case 'LIFE': {
+      ctx.beginPath(); ctx.moveTo(60, B - 300); ctx.lineTo(240, B - 460); ctx.lineTo(420, B - 300); ctx.closePath(); ctx.fill();
+      roundRect(ctx, 100, B - 310, 280, 220, 18); ctx.fill();
+      circle(860, 280, 90);
+      ctx.lineWidth = 12;
+      for (let a = 0; a < 360; a += 45) { const r = (a * Math.PI) / 180; ctx.beginPath(); ctx.moveTo(860 + Math.cos(r) * 120, 280 + Math.sin(r) * 120); ctx.lineTo(860 + Math.cos(r) * 150, 280 + Math.sin(r) * 150); ctx.stroke(); }
+      [[560, B - 160, 50], [620, B - 180, 64], [690, B - 160, 48]].forEach(([x, y, r]) => circle(x, y, r));
+      break;
+    }
+    case 'TREND': {
+      const flame = (x, y, s) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 90 * s, y - 60 * s, x - 40 * s, y - 170 * s, x, y - 240 * s); ctx.bezierCurveTo(x + 50 * s, y - 160 * s, x + 100 * s, y - 70 * s, x, y); ctx.fill(); };
+      flame(200, B - 100, 1.3); flame(380, B - 110, 0.8);
+      ctx.lineWidth = 20; ctx.beginPath(); ctx.moveTo(720, 440); ctx.lineTo(940, 220); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(860, 210); ctx.lineTo(950, 210); ctx.lineTo(950, 300); ctx.stroke();
+      star(700, 240, 34);
+      break;
+    }
+    case 'MOA': {
+      [[180, B - 300, 110], [380, B - 180, 60], [860, 300, 80], [720, 420, 40]].forEach(([x, y, r]) => { heartPath(ctx, x, y, r); ctx.fill(); });
+      [[120, 420, 40], [180, 400, 56], [250, 420, 40]].forEach(([x, y, r]) => circle(x, y + 500, r));
+      break;
+    }
+    default: { // NEWS: 신문
+      ctx.save(); ctx.translate(230, B - 300); ctx.rotate(-0.12);
+      roundRect(ctx, -190, -150, 380, 300, 24); ctx.fill();
+      ctx.globalAlpha = 0.6; ctx.fillStyle = '#fff';
+      roundRect(ctx, -150, -110, 140, 100, 10); ctx.fill();
+      [-110, -70, -30].forEach((yy) => { roundRect(ctx, 20, yy, 130, 16, 8); ctx.fill(); });
+      [20, 60, 100].forEach((yy) => { roundRect(ctx, -150, yy, 300, 16, 8); ctx.fill(); });
+      ctx.restore();
+      circle(860, 280, 80);
+      ctx.save(); ctx.globalAlpha = 0.7; ctx.fillStyle = '#fff'; ctx.font = '900 110px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 860, 286); ctx.restore();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+
+// =====================================================================
+// 덱 디자인 테마
+// =====================================================================
+export const DECK_THEMES = {
+  toon: '🐑 인스타툰 (흰 배경 · 손글씨 말풍선 · 모아가 매 장 등장)',
+  magazine: '📰 매거진 (사진 커버 · 종이 질감 · 굵은 타이포)',
+};
+export function deckTheme(content, settings) {
+  if (content?.theme) return content.theme;
+  if (content?.coverStyle === 'magazine') return 'magazine';
+  if (content?.coverStyle) return 'toon';
+  return settings?.deckTheme || 'toon';
+}
+
+// 같은 카드는 항상 같은 손그림 흔들림이 나오도록 시드 고정 난수
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let x = Math.imul(a ^ (a >>> 15), 1 | a); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+}
+function sketchRect(ctx, x, y, w, h, r, seed, color = '#2B2B2B', lw = 4) {
+  const rnd = seeded(seed);
+  const j = () => (rnd() - 0.5) * 5;
+  ctx.save(); ctx.strokeStyle = color; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.globalAlpha = pass ? 0.35 : 1; ctx.lineWidth = pass ? lw * 0.6 : lw;
+    const [x1, y1, x2, y2] = [x + j(), y + j(), x + w + j(), y + h + j()];
+    ctx.beginPath();
+    ctx.moveTo(x1 + r, y1);
+    ctx.quadraticCurveTo((x1 + x2) / 2, y1 + j(), x2 - r, y1 + j() * 0.5);
+    ctx.quadraticCurveTo(x2, y1, x2 + j() * 0.3, y1 + r);
+    ctx.quadraticCurveTo(x2 + j(), (y1 + y2) / 2, x2, y2 - r);
+    ctx.quadraticCurveTo(x2, y2, x2 - r, y2 + j() * 0.3);
+    ctx.quadraticCurveTo((x1 + x2) / 2, y2 + j(), x1 + r, y2);
+    ctx.quadraticCurveTo(x1, y2, x1 + j() * 0.3, y2 - r);
+    ctx.quadraticCurveTo(x1 + j(), (y1 + y2) / 2, x1, y1 + r);
+    ctx.quadraticCurveTo(x1, y1, x1 + r + j() * 0.3, y1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function sketchLine(ctx, x1, y1, x2, y2, seed, color = '#2B2B2B', lw = 3) {
+  const rnd = seeded(seed);
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1 + (rnd() - 0.5) * 3);
+  ctx.quadraticCurveTo((x1 + x2) / 2, (y1 + y2) / 2 + (rnd() - 0.5) * 8, x2, y2 + (rnd() - 0.5) * 3);
+  ctx.stroke(); ctx.restore();
+}
+function sketchCircle(ctx, cx, cy, r, seed, fill, color = '#2B2B2B', lw = 3.5) {
+  const rnd = seeded(seed);
+  ctx.save();
+  if (fill) { ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); }
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
+  for (let a = 0; a <= Math.PI * 2.08; a += Math.PI / 10) {
+    const rr = r + (rnd() - 0.5) * 3;
+    const px = cx + Math.cos(a) * rr; const py = cy + Math.sin(a) * rr;
+    if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke(); ctx.restore();
+}
+
+// 핵심어(highlight)와 숫자를 강조 표시할 위치
+function keyFlags(text, hl) {
+  const flags = new Array(text.length).fill(false);
+  if (hl) { let i = text.indexOf(hl); while (i >= 0) { for (let k = 0; k < hl.length; k++) flags[i + k] = true; i = text.indexOf(hl, i + 1); } }
+  for (const m of text.matchAll(NUM_RE)) for (let k = 0; k < m[0].length; k++) flags[m.index + k] = true;
+  return flags;
+}
+// 줄마다 정렬해서 강조어는 다른 색으로 그린다
+function drawRich(ctx, text, lines, { x, w, top, size, lh, color, accent, flags, align = 'center', marker }) {
+  ctx.textBaseline = 'alphabetic';
+  lines.forEach((ln, i) => {
+    const line = text.slice(ln.start, ln.end);
+    const lw = ctx.measureText(line).width;
+    let cx = align === 'center' ? x + (w - lw) / 2 : x;
+    const y = top + size + i * size * lh;
+    let k = 0;
+    while (k < line.length) {
+      const on = flags[ln.start + k];
+      let j = k;
+      while (j < line.length && flags[ln.start + j] === on) j++;
+      const seg = line.slice(k, j);
+      const sw = ctx.measureText(seg).width;
+      if (on && marker) { ctx.fillStyle = marker; ctx.fillRect(cx - 4, y - size * 0.38, sw + 8, size * 0.42); }
+      ctx.fillStyle = on && !marker ? accent : color;
+      ctx.fillText(seg, cx, y);
+      cx += sw;
+      k = j;
+    }
+  });
+  return top + lines.length * size * lh;
+}
+
+// 노란 손글씨 말풍선 — side: 모아가 있는 쪽
+function drawToonBubble(ctx, text, box, side = 'right', maxW = 340) {
+  if (!text) return;
+  const bf = CHARACTER_FONTS.bubble;
+  ctx.save();
+  ctx.font = `400 46px ${bf}`;
+  const lines = [];
+  let cur = '';
+  for (const w of text.split(/\s+/)) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(next).width > maxW && cur) { lines.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  const shown = lines.slice(0, 3);
+  const bw = Math.max(...shown.map((l) => ctx.measureText(l).width)) + 64;
+  const bh = shown.length * 50 + 40;
+  const bx = side === 'right' ? Math.max(30, box.x - bw + 30) : Math.min(SIZE - bw - 30, box.x + box.w - 30);
+  const by = Math.max(20, box.y + box.h * 0.3 - bh / 2);
+  ctx.fillStyle = '#FFE58A'; ctx.strokeStyle = '#4A3B2F'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  const rr = 34;
+  const tailY = by + bh * 0.62;
+  ctx.beginPath();
+  ctx.moveTo(bx + rr, by);
+  ctx.lineTo(bx + bw - rr, by + 2);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw - 2, by + rr);
+  if (side === 'right') { ctx.lineTo(bx + bw - 2, tailY - 14); ctx.lineTo(bx + bw + 46, tailY + 18); ctx.lineTo(bx + bw - 6, tailY + 6); }
+  ctx.lineTo(bx + bw, by + bh - rr);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh - 1);
+  ctx.lineTo(bx + rr, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx + 1, by + bh - rr);
+  if (side === 'left') { ctx.lineTo(bx + 2, tailY + 6); ctx.lineTo(bx - 46, tailY + 18); ctx.lineTo(bx + 2, tailY - 14); }
+  ctx.lineTo(bx, by + rr);
+  ctx.quadraticCurveTo(bx, by, bx + rr, by);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3A2E25'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  shown.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + 45 + i * 50));
+  ctx.restore();
+}
+
+async function loadThemeFonts(texts) {
+  const sample = [...new Set(texts.filter(Boolean).join('').replace(/\s/g, ''))].join('') || '가';
+  try {
+    await Promise.all([
+      document.fonts.load(`400 80px ${CHARACTER_FONTS.title}`, sample),
+      document.fonts.load(`400 40px ${CHARACTER_FONTS.bubble}`, sample),
+      document.fonts.load('900 60px "Pretendard Variable"', sample),
+    ]);
+  } catch { /* 대체 폰트 사용 */ }
+}
+const cardTexts = (card) => [card.title, card.body, card.highlight, card.moaSays, card.number, card.numberLabel, ...(card.items || []), ...Object.values(card.compare || {})];
+
+// ---------------------------------------------------------------------
+// 인스타툰
+// ---------------------------------------------------------------------
+async function renderToon(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
+  await loadThemeFonts([...cardTexts(card), settings.handle, '0123456789/#']);
+  const T = CHARACTER_FONTS.title;
+  const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
+  const ink = st.textColor || '#1E1E1E';
+  const accent = st.accent || '#3B7DD8';
+  const pink = '#F08C8C';
+  ctx.fillStyle = st.bg || '#FFFFFF'; ctx.fillRect(0, 0, SIZE, H);
+
+  if (index === 0) {
+    await drawCharacterCover(ctx, content, card, { t, settings, env, fontScale, pos: st.moaPos });
+    return;
+  }
+
+  const total = content.cards.length;
+  const seed = index * 97 + 13;
+  // 상단: 주제 해시태그 + 페이지
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  ctx.font = `400 36px ${T}`; ctx.fillStyle = accent; ctx.textBaseline = 'middle';
+  ctx.fillText(`#${cat.name.replace(/\s/g, '')}`, 64, 74);
+  ctx.font = `600 26px ${B}`; ctx.fillStyle = '#9A9A9A'; ctx.textAlign = 'right';
+  ctx.fillText(`${index + 1}/${total}`, SIZE - 64, 74);
+  ctx.textAlign = 'left';
+
+  // 모아: 장마다 좌우 번갈아, 말풍선은 반대쪽
+  const isCta = layout === 'cta';
+  const showMoa = st.moaPos !== 'none' && env.moa;
+  const sideDefault = index % 2 ? 'bl' : 'br';
+  const mpos = isCta ? 'bc' : (st.moaPos && st.moaPos !== 'none' ? (st.moaPos.endsWith('l') ? 'bl' : 'br') : sideDefault);
+  const mscale = (isCta ? 0.78 : 0.82) * (1 + ((H - 1080) / 1080) * 0.9) * (st.moaScale || 1);
+  const box = showMoa ? moaBox(env.moa, mpos, mscale) : null;
+  const bottom = box ? box.y - 34 : H - 90;
+  const X = 70;
+  const W = SIZE - X * 2;
+  let y = 140;
+
+  // 제목 (둥근 손글씨풍, 가운데)
+  const titleBlock = (text, max, maxLines, yy) => {
+    if (!text) return yy;
+    setSpacing(ctx, -2);
+    const r = fit(ctx, text, { family: T, weight: 400, max: Math.round(max * fontScale), min: 54, maxLines, widthAt: () => W });
+    ctx.font = `400 ${r.size}px ${T}`;
+    const end = drawRich(ctx, text, r.lines, { x: X, w: W, top: yy, size: r.size, lh: 1.18, color: ink, accent, flags: keyFlags(text, card.highlight) });
+    setSpacing(ctx, 0);
+    return end;
+  };
+  const bodyBlock = (text, yy, maxH, opts = {}) => {
+    if (!text) return yy;
+    const pad = 44;
+    const innerW = W - pad * 2 - 20;
+    const lh = 1.55;
+    let r = fit(ctx, text, { family: B, weight: 500, max: Math.round(44 * fontScale), min: 30, maxLines: 5, widthAt: () => innerW });
+    while (r.lines.length * r.size * lh + pad * 2 > maxH && r.size > 28) r = fit(ctx, text, { family: B, weight: 500, max: r.size - 2, min: 28, maxLines: 5, widthAt: () => innerW });
+    ctx.font = `500 ${r.size}px ${B}`;
+    const tw = Math.max(...r.lines.map((ln) => ctx.measureText(text.slice(ln.start, ln.end)).width));
+    const bw = Math.min(W, tw + pad * 2 + 20);
+    const bh = (r.lines.length - 1) * r.size * lh + r.size * 1.25 + pad * 1.4;
+    const bx = X + (W - bw) / 2;
+    if (opts.box !== false) sketchRect(ctx, bx, yy, bw, bh, 34, seed + 3);
+    drawRich(ctx, text, r.lines, { x: bx, w: bw, top: yy + pad * 0.7 - r.size * 0.1, size: r.size, lh, color: '#3A3A3A', accent, flags: keyFlags(text, card.highlight) });
+    return yy + bh;
+  };
+
+  if (layout === 'list') {
+    y = titleBlock(card.title, 88, 2, y) + 40;
+    const items = (card.items || []).slice(0, 5);
+    const rowH = Math.min(150, Math.floor((bottom - y) / Math.max(1, items.length)));
+    items.forEach((it, i) => {
+      const cy = y + rowH / 2;
+      const isCheck = card.type === 'LIFE/CHECK';
+      sketchCircle(ctx, X + 40, cy, 30, seed + i, isCheck ? '#E6F3E1' : '#E3EEFB');
+      if (isCheck) {
+        ctx.save(); ctx.strokeStyle = '#3E8E57'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(X + 26, cy); ctx.lineTo(X + 37, cy + 12); ctx.lineTo(X + 56, cy - 12); ctx.stroke(); ctx.restore();
+      } else {
+        ctx.font = `400 38px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), X + 40, cy + 2); ctx.textAlign = 'left';
+      }
+      const tx = X + 96;
+      const tw = W - 96;
+      const r = fit(ctx, it, { family: B, weight: 700, max: Math.round(44 * fontScale), min: 28, maxLines: 2, widthAt: () => tw });
+      ctx.font = `700 ${r.size}px ${B}`;
+      const th = r.lines.length * r.size * 1.3;
+      drawRich(ctx, it, r.lines, { x: tx, w: tw, top: cy - th / 2 - r.size * 0.15, size: r.size, lh: 1.3, color: ink, accent, flags: keyFlags(it, card.highlight), align: 'left' });
+      if (i < items.length - 1) sketchLine(ctx, tx, y + rowH - 4, X + W, y + rowH - 4, seed + i + 50, '#D9D9D9', 2.5);
+      y += rowH;
+    });
+    if (!items.length) bodyBlock(card.body, y, bottom - y);
+  } else if (layout === 'number' && card.number) {
+    y = titleBlock(card.title, 70, 2, y) + 30;
+    const r = fit(ctx, card.number, { family: T, weight: 400, max: 240, min: 110, maxLines: 1, widthAt: () => W });
+    ctx.font = `400 ${r.size}px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(card.number, SIZE / 2, y + r.size * 0.95);
+    y += r.size + 10;
+    if (card.numberLabel) { ctx.font = `700 44px ${B}`; ctx.fillStyle = ink; ctx.fillText(card.numberLabel, SIZE / 2, y + 40); y += 80; }
+    ctx.textAlign = 'left';
+    bodyBlock(card.body, y + 10, bottom - y - 10);
+  } else if (layout === 'compare' && card.compare?.left) {
+    y = titleBlock(card.title, 80, 2, y) + 40;
+    const gap = 30;
+    const w = (W - gap) / 2;
+    const c = card.compare;
+    // 내용 길이에 맞춘 박스 높이
+    let need = 0;
+    for (const b of [c.left, c.right]) {
+      const rr = fit(ctx, b || '', { family: B, weight: 600, max: 44, min: 28, maxLines: 6, widthAt: () => w - 56 });
+      need = Math.max(need, rr.lines.length * rr.size * 1.45);
+    }
+    const h = Math.min(bottom - y, 124 + need + 50);
+    [[c.leftTitle || 'BEFORE', c.left, accent, X], [c.rightTitle || 'AFTER', c.right, pink, X + w + gap]].forEach(([tt, body, col, x], i) => {
+      sketchRect(ctx, x, y, w, h, 30, seed + 10 + i);
+      ctx.font = `400 46px ${T}`; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(tt, x + w / 2, y + 56); ctx.textAlign = 'left';
+      sketchLine(ctx, x + 30, y + 100, x + w - 30, y + 100, seed + 20 + i, '#DDDDDD', 2.5);
+      const r = fit(ctx, body || '', { family: B, weight: 600, max: 44, min: 28, maxLines: 6, widthAt: () => w - 56 });
+      ctx.font = `600 ${r.size}px ${B}`;
+      drawRich(ctx, body || '', r.lines, { x: x + 28, w: w - 56, top: y + 124, size: r.size, lh: 1.45, color: ink, accent, flags: keyFlags(body || '', card.highlight) });
+    });
+  } else if (isCta) {
+    y = titleBlock(card.title, 100, 3, 170) + 26;
+    if (card.body) { ctx.font = `500 40px ${B}`; ctx.fillStyle = '#555'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(card.body, SIZE / 2, y + 40); ctx.textAlign = 'left'; y += 80; }
+    const icons = ['저장', '공유', '팔로우'];
+    icons.forEach((label, i) => {
+      const cx = SIZE / 2 + (i - 1) * 200;
+      const cy = y + 70;
+      sketchCircle(ctx, cx, cy, 56, seed + i, i === 2 ? '#FFE58A' : '#FFFFFF');
+      ctx.font = `400 ${label.length > 2 ? 30 : 36}px ${T}`; ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, cy + 2); ctx.textAlign = 'left';
+    });
+    ctx.font = `400 44px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(settings.handle, SIZE / 2, y + 190); ctx.textAlign = 'left';
+  } else {
+    // 설명형·큰 제목·키워드: 제목을 위쪽 가운데에 크게, 본문은 손그림 박스
+    const avail = bottom - y;
+    const titleEnd = titleBlock(card.title, card.body ? 96 : 120, 3, y + (card.body ? 10 : Math.max(0, avail * 0.18)));
+    if (card.body) bodyBlock(card.body, titleEnd + 44, bottom - titleEnd - 44);
+  }
+
+  // 모아 + 말풍선
+  if (showMoa) {
+    drawMoa(ctx, env, { ...card, style: { ...st, moaFlip: mpos === 'bl' ? !st.moaFlip : st.moaFlip } }, box, t, B);
+    if (!isCta || card.moaSays) drawToonBubble(ctx, card.moaSays, box, mpos === 'bl' ? 'left' : 'right');
+  }
+  // 하단 계정 / 출처
+  ctx.font = `600 22px ${B}`; ctx.fillStyle = '#ABABAB'; ctx.textBaseline = 'alphabetic';
+  const foot = index === 1 && content.sources?.length ? `출처: ${content.sources.map((x) => x.name).filter(Boolean).slice(0, 2).join(', ')}` : settings.handle;
+  if (mpos === 'bl') { ctx.textAlign = 'right'; ctx.fillText(foot, SIZE - 64, H - 40); ctx.textAlign = 'left'; } else ctx.fillText(foot, 64, H - 40);
+}
+
+// ---------------------------------------------------------------------
+// 매거진
+// ---------------------------------------------------------------------
+async function renderMagazine(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
+  await loadThemeFonts([...cardTexts(card), settings.handle, settings.brand]);
+  const F = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
+  const ink = st.textColor || '#141414';
+  const marker = st.accent || '#FFE14D';
+  const total = content.cards.length;
+
+  if (index === 0) {
+    const img = env.bgs?.[`${content.id}:0`];
+    drawMagazineCover(ctx, content, card, img, { family: F, t, settings, env, pos: st.moaPos || 'br', moaScale: 0.62 * (st.moaScale || 1), fontScale });
+    return;
+  }
+  const bgImg = env.bgs?.[`${content.id}:${index}`];
+  ctx.fillStyle = st.bg || '#F5F2EC'; ctx.fillRect(0, 0, SIZE, H);
+  if (bgImg) drawCoverImage(ctx, bgImg, st.bg || '#F5F2EC');
+
+  const X = 80;
+  const W = SIZE - X * 2;
+  // 상단 바
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  setSpacing(ctx, 4);
+  ctx.font = `800 22px ${F}`; ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`MOA MAGAZINE  ·  ${cat.label.replace('MOA ', '')}`, X, 82);
+  ctx.textAlign = 'right'; ctx.fillText(`${String(index + 1).padStart(2, '0')} — ${String(total).padStart(2, '0')}`, X + W, 82); ctx.textAlign = 'left';
+  setSpacing(ctx, 0);
+  ctx.fillStyle = ink; ctx.fillRect(X, 102, W, 3);
+
+  // 하단 바 + 모아(작게)
+  const footY = H - 96;
+  ctx.fillRect(X, footY, W, 1.5);
+  ctx.font = `600 22px ${F}`; ctx.fillStyle = '#6B6B6B';
+  const src = content.sources?.length ? `출처 ${content.sources.map((x) => x.name).filter(Boolean).slice(0, 2).join(', ')}` : settings.brand;
+  ctx.fillText(src, X, footY + 44);
+  ctx.textAlign = 'right'; ctx.fillText(settings.handle, X + W, footY + 44); ctx.textAlign = 'left';
+  const showMoa = st.moaPos !== 'none' && env.moa;
+  const mbox = showMoa ? moaBox(env.moa, 'br', 0.42 * (st.moaScale || 1)) : null;
+  if (mbox) { mbox.y = footY - mbox.h + 6; mbox.x = X + W - mbox.w + 10; }
+  const bottom = footY - 40 - (mbox ? 40 : 0);
+
+  // 섹션 라벨
+  let y = 150;
+  const label = { HOOK: 'INTRO', WHAT: 'WHAT', WHY: 'WHY', 'SO WHAT': 'SO WHAT', "MOA'S PICK": "MOA'S PICK", 'LIFE/CHECK': 'CHECK', CTA: 'FOLLOW' }[card.type] || card.type;
+  setSpacing(ctx, 3);
+  ctx.font = `900 26px ${F}`; ctx.fillStyle = ink;
+  const lw = ctx.measureText(label).width;
+  ctx.fillStyle = marker; ctx.fillRect(X - 6, y - 4, lw + 12, 34);
+  ctx.fillStyle = ink; ctx.textBaseline = 'top'; ctx.fillText(label, X, y); ctx.textBaseline = 'alphabetic';
+  setSpacing(ctx, 0);
+  y += 70;
+
+  const title = (text, max, maxLines, yy, align = 'left') => {
+    if (!text) return yy;
+    setSpacing(ctx, -Math.round(max * 0.035));
+    const r = fit(ctx, text, { family: F, weight: 900, max: Math.round(max * fontScale), min: 50, maxLines, widthAt: () => W });
+    ctx.font = `900 ${r.size}px ${F}`;
+    const end = drawRich(ctx, text, r.lines, { x: X, w: W, top: yy, size: r.size, lh: 1.16, color: ink, flags: keyFlags(text, card.highlight), marker, align });
+    setSpacing(ctx, 0);
+    return end;
+  };
+  const para = (text, yy, maxBottom, size = 40) => {
+    if (!text) return yy;
+    let r = fit(ctx, text, { family: F, weight: 500, max: Math.round(size * fontScale), min: 28, maxLines: 7, widthAt: () => W - 20 });
+    while (yy + r.lines.length * r.size * 1.62 > maxBottom && r.size > 28) r = fit(ctx, text, { family: F, weight: 500, max: r.size - 2, min: 28, maxLines: 7, widthAt: () => W - 20 });
+    ctx.fillStyle = ink; ctx.fillRect(X, yy + 8, 6, r.lines.length * r.size * 1.62 - 16);
+    ctx.font = `500 ${r.size}px ${F}`;
+    return drawRich(ctx, text, r.lines, { x: X + 30, w: W - 30, top: yy, size: r.size, lh: 1.62, color: '#2E2E2E', flags: new Array(text.length).fill(false), align: 'left' });
+  };
+
+  if (layout === 'list') {
+    y = title(card.title, 84, 2, y) + 40;
+    const items = (card.items || []).slice(0, 5);
+    const rowH = Math.min(160, Math.floor((bottom - y) / Math.max(1, items.length)));
+    items.forEach((it, i) => {
+      ctx.fillStyle = ink; ctx.fillRect(X, y, W, 1.5);
+      ctx.font = `900 64px ${F}`; ctx.fillStyle = ink; ctx.textBaseline = 'top';
+      ctx.fillText(String(i + 1).padStart(2, '0'), X, y + 22);
+      ctx.textBaseline = 'alphabetic';
+      const r = fit(ctx, it, { family: F, weight: 700, max: Math.round(42 * fontScale), min: 28, maxLines: 2, widthAt: () => W - 130 });
+      ctx.font = `700 ${r.size}px ${F}`;
+      const th = r.lines.length * r.size * 1.3;
+      drawRich(ctx, it, r.lines, { x: X + 130, w: W - 130, top: y + rowH / 2 - th / 2 - r.size * 0.12, size: r.size, lh: 1.3, color: ink, flags: keyFlags(it, card.highlight), marker, align: 'left' });
+      y += rowH;
+    });
+    if (items.length) { ctx.fillStyle = ink; ctx.fillRect(X, y, W, 1.5); }
+    else para(card.body, y, bottom);
+  } else if (layout === 'number' && card.number) {
+    y = title(card.title, 64, 2, y) + 30;
+    const r = fit(ctx, card.number, { family: F, weight: 900, max: 260, min: 120, maxLines: 1, widthAt: () => W });
+    setSpacing(ctx, -8);
+    ctx.font = `900 ${r.size}px ${F}`;
+    const nw = ctx.measureText(card.number).width;
+    ctx.fillStyle = marker; ctx.fillRect(X - 6, y + r.size * 0.55, nw + 12, r.size * 0.36);
+    ctx.fillStyle = ink; ctx.fillText(card.number, X, y + r.size * 0.88);
+    setSpacing(ctx, 0);
+    y += r.size + 10;
+    if (card.numberLabel) { setSpacing(ctx, 2); ctx.font = `800 30px ${F}`; ctx.fillText(card.numberLabel, X, y + 30); setSpacing(ctx, 0); y += 70; }
+    para(card.body, y + 10, bottom);
+  } else if (layout === 'compare' && card.compare?.left) {
+    y = title(card.title, 76, 2, y) + 50;
+    const c = card.compare;
+    const w = (W - 60) / 2;
+    const h = Math.min(560, bottom - y);
+    ctx.fillStyle = ink; ctx.fillRect(X + w + 29, y, 2, h);
+    [[c.leftTitle || 'BEFORE', c.left, X], [c.rightTitle || 'AFTER', c.right, X + w + 60]].forEach(([tt, body, x]) => {
+      ctx.font = `900 44px ${F}`;
+      const tw = ctx.measureText(tt).width;
+      ctx.fillStyle = marker; ctx.fillRect(x - 4, y + 22, tw + 8, 20);
+      ctx.fillStyle = ink; ctx.textBaseline = 'top'; ctx.fillText(tt, x, y); ctx.textBaseline = 'alphabetic';
+      const r = fit(ctx, body || '', { family: F, weight: 500, max: 38, min: 26, maxLines: Math.max(2, Math.floor((h - 90) / 58)), widthAt: () => w - 10 });
+      ctx.font = `500 ${r.size}px ${F}`;
+      drawRich(ctx, body || '', r.lines, { x, w: w - 10, top: y + 84, size: r.size, lh: 1.55, color: '#2E2E2E', flags: new Array((body || '').length).fill(false), align: 'left' });
+    });
+  } else if (layout === 'cta') {
+    y = title(card.title, 100, 3, y + 40) + 30;
+    if (card.body) { ctx.font = `500 38px ${F}`; ctx.fillStyle = '#444'; ctx.fillText(card.body, X, y + 30); y += 80; }
+    ['SAVE', 'SHARE', 'FOLLOW'].forEach((w, i) => {
+      setSpacing(ctx, 3); ctx.font = `900 30px ${F}`;
+      const bw = ctx.measureText(w).width + 56;
+      const bx = X + i * 230;
+      ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.strokeRect(bx, y + 10, bw, 64);
+      if (i === 2) { ctx.fillStyle = marker; ctx.fillRect(bx, y + 10, bw, 64); ctx.strokeRect(bx, y + 10, bw, 64); }
+      ctx.fillStyle = ink; ctx.textBaseline = 'middle'; ctx.fillText(w, bx + 28, y + 43); ctx.textBaseline = 'alphabetic';
+      setSpacing(ctx, 0);
+    });
+    ctx.font = `900 58px ${F}`; ctx.fillStyle = ink; ctx.fillText(settings.handle, X, y + 180);
+  } else {
+    const end = title(card.title, card.body ? 92 : 120, 3, y);
+    para(card.body, end + 46, bottom);
+  }
+  if (mbox) drawMoa(ctx, env, card, mbox, t, F);
 }
 
 // ---------- 내보내기 ----------

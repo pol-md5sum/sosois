@@ -55,6 +55,12 @@ export const CATEGORIES = {
     guide: '문화. 결말 등 스포일러 금지, 공개일·장소·예매 정보는 정확히. 출연자 사생활 언급 금지.',
     tags: ['문화생활', '전시추천', '드라마추천', '주말뭐하지'],
   },
+  MOA: {
+    label: 'HELLO MOA', emoji: '🐑', name: '모아 소개', color: '#F5B8B5', hidden: true,
+    desc: '모아 브랜드·계정 소개 게시물',
+    guide: '브랜드 소개. 반말 친근체, 짧은 문장, 따뜻한 톤.',
+    tags: ['모아', '첫게시물', '모아가모아올게', '뉴스요약', '카드뉴스'],
+  },
   SHOPPING: {
     label: 'MOA SHOPPING', emoji: '🛍️', name: '쇼핑', color: '#6FB3A8',
     desc: '할인·신상·쇼핑 이슈 정리',
@@ -62,6 +68,8 @@ export const CATEGORIES = {
     tags: ['쇼핑정보', '할인정보', '신상', '쇼핑꿀팁'],
   },
 };
+
+export const TOPIC_KEYS = () => Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].hidden);
 
 export const CARD_TYPES = ['HOOK', 'WHAT', 'WHY', 'SO WHAT', "MOA'S PICK", 'LIFE/CHECK', 'CTA'];
 
@@ -142,22 +150,31 @@ export const SYSTEM_PROMPT = `너는 인스타그램 카드뉴스 브랜드 "MOA
 - 귀여움 + 신뢰감 + 쉬움 + 트렌디함. 딱딱한 앵커 말투 금지, 친근한 설명체(~해요, ~이에요).
 - 이모지는 카드 본문에 쓰지 않는다(디자인에서 처리). 캡션에는 2~5개까지 허용.
 
-[원고 규칙]
-- 짧고 읽기 쉽게. 카드 제목 22자 이내, 본문 90자 이내, 리스트 항목 각 24자 이내.
-- 어려운 용어는 괄호나 한 문장으로 풀어 쓴다.
+[원고 규칙 — 0.5초 안에 이해되게]
+- 완전 초보도 바로 이해할 쉬운 말. 어려운 용어는 쓰지 않거나 한 단어로 풀어 쓴다.
+- 긴 문단 금지, 배경 설명 금지. 카드 하나에 문장 1~2개. 제목 18자 이내, 본문 60자 이내, 리스트 항목 각 20자 이내.
+- 핵심을 한 번에 다 주지 않는다. 장을 넘길수록 하나씩 공개해서 끝까지 넘겨 볼 이유를 만든다.
 - 기사 원문 문장을 그대로 옮기지 않는다. 반드시 다시 쓴다.
-- 사실과 의견을 구분한다. 의견·전망은 "~로 보여요", "~라는 의견도 있어요"처럼 표시한다.
-- 과장, 공포 조장, 낚시성 표현 금지. 제공된 자료나 검색으로 확인되지 않은 수치·날짜·인용은 만들지 않는다.
+- 사실과 의견을 구분한다. 의견·전망은 "~로 보여요"처럼 표시한다.
+- 과장, 공포 조장, 사실과 다른 낚시 금지. 확인되지 않은 수치·날짜·인용은 만들지 않는다.
 - 정책·경제·의료·법률 주제는 정부·공공기관·주요 언론 등 신뢰할 수 있는 출처를 우선한다.
 - 확인이 필요한 사항은 factNotes에 적는다.
 
+[1장 HOOK 헤드라인 — 가장 중요]
+- 한 문장, 공백 포함 16자 안팎(최대 20자). 짧게, 굵게, 궁금하게.
+- 결론·정답을 1장에서 말하지 않는다. "왜?", "뭐가?", "나도?"가 떠오르게 해서 다음 장을 넘기게 만든다.
+- 배경 설명·수식어·기관명 나열 금지. 0.5초 안에 읽히는 단어만.
+- 좋은 예: "내 월급, 이제 달라져요?" / "다들 이거 사려고 줄 섰대" / "카톡에 이 기능 생겼어요"
+- 나쁜 예: "한국은행 금융통화위원회 기준금리 연 2.25% 동결 결정" (길고, 답을 다 줌)
+- body는 비우거나 12자 이내 티저(예: "끝까지 보면 알려줄게요").
+
 [7장 구조 — 반드시 이 순서, 정확히 7장]
-1 HOOK: 스크롤을 멈추게 하는 한 줄 (title 짧게, body는 한 줄 보조문구)
-2 WHAT: 무슨 일이 일어났는지 (누가/언제/무엇)
-3 WHY: 왜 화제인지
-4 SO WHAT: 우리 생활에 어떤 의미인지
-5 MOA'S PICK: 핵심 3가지 (items 3개)
-6 LIFE/CHECK: 실제 생활에서 알아둘 점 (items 2~4개 체크리스트)
+1 HOOK: 위 헤드라인 규칙
+2 WHAT: 무슨 일인지 한두 문장
+3 WHY: 왜 화제인지 한두 문장
+4 SO WHAT: 나한테 무슨 상관인지
+5 MOA'S PICK: 핵심 3가지 (items 3개, 서로 다른 내용)
+6 LIFE/CHECK: 지금 할 일 체크리스트 (items 2~4개)
 7 CTA: 저장/공유/팔로우 유도
 
 [카드 필드]
@@ -166,7 +183,7 @@ export const SYSTEM_PROMPT = `너는 인스타그램 카드뉴스 브랜드 "MOA
 - compare: 전후·찬반 비교가 핵심이면 채우고, 아니면 모두 "".
 - layout: big(짧은 큰 제목) / text(설명) / list(리스트) / number(큰 숫자) / compare(좌우 비교) / keyword(키워드 강조) / cta / auto 중 내용에 맞게.
 - pose: HOOK=surprised, WHAT=curious, WHY=thinking, SO WHAT=explain, MOA'S PICK=check, LIFE/CHECK=check, CTA=wave 를 기본으로 하되 내용에 더 맞는 포즈가 있으면 바꿔도 된다.
-- moaSays: 모아가 말풍선으로 하는 짧은 한마디(16자 이내).
+- moaSays: 모아가 말풍선으로 하는 짧은 한마디(16자 이내). HOOK의 moaSays는 독자 마음을 대신하는 혼잣말 반응(예: "안 사면 뒤처지는 거야..?", "이게 진짜라고..?").
 
 [캡션]
 관심을 끄는 첫 문장 → 뉴스 핵심 2~3줄 → 모아의 한마디 → CTA(저장/공유/팔로우) → 출처 표기 순서. 해시태그는 hashtags 배열에 # 없이 5~15개.`;
@@ -176,10 +193,10 @@ export function buildContentPrompt(news, opts = {}) {
   lines.push('아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
   lines.push('');
   const cat = CATEGORIES[news.category] || CATEGORIES.NEWS;
-  lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
+  if ((!opts.fromUrl && !opts.images?.length) || news.category) lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
   lines.push(`이 카테고리 작성 원칙: ${cat.guide}`);
   lines.push(`기본 해시태그 후보: ${['모아뉴스', ...cat.tags].join(', ')}`);
-  lines.push(`제목: ${news.title}`);
+  if (news.title) lines.push(`제목: ${news.title}`);
   if (news.publishedAt) lines.push(`기사 날짜: ${news.publishedAt}`);
   if (news.summary) lines.push(`요약: ${news.summary}`);
   const sources = news.sources?.length ? news.sources : (news.url ? [{ name: news.source || '', title: news.title, url: news.url }] : []);
@@ -192,13 +209,25 @@ export function buildContentPrompt(news, opts = {}) {
     lines.push('기사 본문(사용자가 제공, 참고용 — 문장을 그대로 옮기지 말 것):');
     lines.push(news.articleText.slice(0, 12000));
   }
-  if (opts.webSearch) {
+  if (opts.fromUrl && news.url) {
+    lines.push('');
+    lines.push(`기사 URL: ${news.url}`);
+    lines.push('위 URL의 기사를 직접 열어 읽고, 그 기사 내용만을 근거로 작성해. 기사 제목·언론사·날짜를 확인해서 title과 sources에 넣어.');
+    lines.push(`category는 기사 내용에 가장 맞는 것으로 골라: ${TOPIC_KEYS().join(', ')} (사건·사고·소송·제재는 NEWS).`);
+    lines.push('기사를 열 수 없으면 지어내지 말고 factNotes에 "기사를 열 수 없음"이라고 쓰고, 확인 가능한 범위에서만 작성해.');
+  } else if (opts.webSearch) {
     lines.push('');
     lines.push('웹 검색으로 이 뉴스의 핵심 사실(날짜, 수치, 주체)을 2개 이상의 출처에서 확인한 뒤 작성해. 확인한 출처는 sources에 넣어.');
   } else {
     lines.push('');
     lines.push('제공된 정보 밖의 구체적 수치나 인용은 지어내지 말고, 일반적인 배경 설명 수준으로만 보충해.');
   }
+  if (opts.images?.length) {
+    lines.push('');
+    lines.push(`첨부 이미지 ${opts.images.length}장은 사용자가 캡처한 기사 화면이다. 이미지 속 기사 내용(제목, 언론사, 날짜, 본문)을 읽고 그 내용만 근거로 작성해. 읽기 어려운 부분은 지어내지 말고 factNotes에 적어.`);
+    if (!news.category) lines.push(`category는 기사 내용에 가장 맞는 것으로 골라: ${TOPIC_KEYS().join(', ')} (사건·사고·소송·제재는 NEWS).`);
+  }
+  if (opts.handle) lines.push(`캡션의 팔로우 문구는 반드시 "🐑 ${opts.handle} 팔로우하고 매일 쉬운 뉴스 받기"로 쓴다.`);
   if (opts.extra) lines.push(`추가 요청: ${opts.extra}`);
   lines.push('');
   lines.push('출력은 아래 JSON 스키마를 따르는 JSON 객체 하나만. 코드블록이나 설명 문장 없이.');
@@ -231,7 +260,7 @@ async function httpJson(fetchImpl, url, init) {
   return data;
 }
 
-async function callClaude({ apiKey, model, system, prompt, schema, webSearch, maxTokens, fetchImpl, browser }) {
+async function callClaude({ apiKey, model, system, prompt, images, schema, webSearch, fetchUrl, maxTokens, fetchImpl, browser }) {
   const headers = {
     'content-type': 'application/json',
     'x-api-key': apiKey,
@@ -242,11 +271,18 @@ async function callClaude({ apiKey, model, system, prompt, schema, webSearch, ma
     model,
     max_tokens: maxTokens || 16000,
     system,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{
+      role: 'user',
+      content: images?.length
+        ? [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })), { type: 'text', text: prompt }]
+        : prompt,
+    }],
     output_config: { effort: 'medium' },
   };
-  if (webSearch) {
-    body.tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 5 }];
+  if (webSearch || fetchUrl) {
+    body.tools = [];
+    if (fetchUrl) body.tools.push({ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3 });
+    body.tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: 5 });
   } else if (schema) {
     body.output_config.format = { type: 'json_schema', schema };
   }
@@ -265,12 +301,17 @@ async function callClaude({ apiKey, model, system, prompt, schema, webSearch, ma
   return (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
-async function callGpt({ apiKey, model, system, prompt, webSearch, fetchImpl }) {
+async function callGpt({ apiKey, model, system, prompt, images, webSearch, fetchUrl, fetchImpl }) {
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` };
-  if (webSearch) {
+  if (webSearch || fetchUrl) {
     const data = await httpJson(fetchImpl, 'https://api.openai.com/v1/responses', {
       method: 'POST', headers,
-      body: JSON.stringify({ model, instructions: system, input: prompt, tools: [{ type: 'web_search' }] }),
+      body: JSON.stringify({
+        model, instructions: system, tools: [{ type: 'web_search' }],
+        input: images?.length
+          ? [{ role: 'user', content: [...images.map((im) => ({ type: 'input_image', image_url: `data:${im.mime};base64,${im.data}` })), { type: 'input_text', text: prompt }] }]
+          : prompt,
+      }),
     });
     if (data.output_text) return data.output_text;
     return (data.output || []).flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('');
@@ -279,21 +320,28 @@ async function callGpt({ apiKey, model, system, prompt, webSearch, fetchImpl }) 
     method: 'POST', headers,
     body: JSON.stringify({
       model,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: system }, {
+        role: 'user',
+        content: images?.length
+          ? [...images.map((im) => ({ type: 'image_url', image_url: { url: `data:${im.mime};base64,${im.data}` } })), { type: 'text', text: prompt }]
+          : prompt,
+      }],
       response_format: { type: 'json_object' },
     }),
   });
   return data.choices?.[0]?.message?.content || '';
 }
 
-async function callGemini({ apiKey, model, system, prompt, webSearch, fetchImpl }) {
+async function callGemini({ apiKey, model, system, prompt, images, webSearch, fetchUrl, fetchImpl }) {
   const body = {
     systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts: [...(images || []).map((im) => ({ inlineData: { mimeType: im.mime, data: im.data } })), { text: prompt }] }],
     generationConfig: {},
   };
-  if (webSearch) body.tools = [{ google_search: {} }];
-  else body.generationConfig.responseMimeType = 'application/json';
+  if (webSearch || fetchUrl) {
+    body.tools = [{ google_search: {} }];
+    if (fetchUrl) body.tools.unshift({ url_context: {} });
+  } else body.generationConfig.responseMimeType = 'application/json';
   const data = await httpJson(fetchImpl, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
@@ -315,6 +363,26 @@ export async function callModel(provider, opts) {
 }
 
 // ---------- 결과 정규화 ----------
+// 따옴표·기호·띄어쓰기 차이를 무시하고 비슷한 문장인지 판단한다
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
+const tokenSet = (s) => new Set(String(s || '').toLowerCase().match(/[가-힣a-z0-9]{2,}/g) || []);
+export function isSimilar(a, b) {
+  const ka = normKey(a);
+  const kb = normKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb || ka.includes(kb) || kb.includes(ka)) return true;
+  const ta = tokenSet(a);
+  const tb = tokenSet(b);
+  let inter = 0;
+  for (const w of ta) if (tb.has(w)) inter++;
+  return inter / Math.min(ta.size || 1, tb.size || 1) >= 0.7;
+}
+export function dedupeTexts(list) {
+  const out = [];
+  for (const t of list) if (t && !out.some((x) => isSimilar(x, t))) out.push(t);
+  return out;
+}
+
 const clampText = (s, n) => (typeof s === 'string' ? s.trim().slice(0, n) : '');
 
 export function normalizeContent(raw, news = {}) {
@@ -342,7 +410,7 @@ export function normalizeContent(raw, news = {}) {
       title: clampText(card.title, 60),
       body: clampText(card.body, 220),
       highlight: clampText(card.highlight, 20),
-      items: (Array.isArray(card.items) ? card.items : []).map((s) => clampText(s, 40)).filter(Boolean).slice(0, 5),
+      items: dedupeTexts((Array.isArray(card.items) ? card.items : []).map((s) => clampText(s, 40)).filter(Boolean)).slice(0, 5),
       number: clampText(card.number, 12),
       numberLabel: clampText(card.numberLabel, 24),
       compare: {
@@ -363,10 +431,11 @@ export function normalizeContent(raw, news = {}) {
 }
 
 // ---------- 템플릿 모드 (AI 키가 없을 때) ----------
-export function templateContent(news) {
+export function templateContent(news, { handle = '@moa.story' } = {}) {
   const title = (news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
   const short = title.length > 26 ? `${title.slice(0, 24)}…` : title;
-  const related = (news.sources || []).map((s) => s.title).filter((t) => t && t !== news.title).slice(0, 3);
+  // 대표 기사와 같은 내용(따옴표·언론사 표기만 다른 제목)은 관련 보도에서 뺀다
+  const related = dedupeTexts([title, ...(news.sources || []).map((s) => s.title)]).slice(1, 4);
   const srcName = news.source || news.sources?.[0]?.name || '';
   const cat = CATEGORIES[news.category] ? news.category : 'NEWS';
   const kw = (title.match(/[가-힣A-Za-z0-9]{2,8}/g) || ['이슈'])[0];
@@ -375,17 +444,17 @@ export function templateContent(news) {
     category: cat,
     hook: `요즘 다들 얘기하는 '${kw}', 알고 있어요?`,
     cards: [
-      { type: 'HOOK', title: `요즘 다들 얘기하는\n'${kw}'`, body: '모아가 3분 만에 정리해 줄게요', highlight: kw, layout: 'big', moaSays: '이거 봤어요?' },
+      { type: 'HOOK', title: `다들 '${kw}' 얘기, 왜?`, body: '끝까지 보면 알려줄게요', highlight: kw, layout: 'big', moaSays: '이거 봤어요?' },
       { type: 'WHAT', title: '무슨 일이냐면요', body: short, highlight: kw, layout: 'text', moaSays: '정리해 볼게요' },
       { type: 'WHY', title: '왜 화제일까요?', body: related.length ? `여러 매체가 동시에 다루고 있어요. ${related[0].slice(0, 50)}` : '많은 사람들의 생활과 맞닿아 있는 이슈라서 관심이 커지고 있어요.', layout: 'text', moaSays: '흠, 그렇구나' },
       { type: 'SO WHAT', title: '우리에겐 어떤 의미?', body: '내 일상에 바로 영향이 있는지, 앞으로 무엇이 바뀌는지 한 번 확인해 보세요.', layout: 'text', moaSays: '이게 포인트!' },
-      { type: "MOA'S PICK", title: "모아's PICK 3", items: [short.slice(0, 24), related[0]?.slice(0, 24) || '관련 보도가 이어지는 중', '공식 발표·원문 확인 필요'], layout: 'list', moaSays: '핵심만 쏙!' },
+      { type: "MOA'S PICK", title: "모아's PICK 3", items: dedupeTexts([short.slice(0, 24), related[0]?.slice(0, 24), related[1]?.slice(0, 24), '관련 보도가 이어지는 중', '공식 발표·원문 확인 필요']).slice(0, 3), layout: 'list', moaSays: '핵심만 쏙!' },
       { type: 'LIFE/CHECK', title: '이것만 체크!', items: ['원문 기사 한 번 더 확인하기', '나와 관련 있는지 따져보기', '공식 발표 업데이트 지켜보기'], layout: 'list', moaSays: '체크 완료!' },
       { type: 'CTA', title: '유용했다면\n저장해 두세요', body: '매일 모아가 쉬운 뉴스로 찾아올게요', layout: 'cta', moaSays: '또 만나요!' },
     ],
     moaComment: '어려운 뉴스, 모아가 쉽게 알려줄게요!',
     cta: '저장하고 친구에게도 공유해 주세요',
-    caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 @moa 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
+    caption: `요즘 다들 얘기하는 '${kw}' 이야기 🐑\n\n${title}\n\n모아가 핵심만 정리했어요. 자세한 내용은 원문 기사를 꼭 확인해 주세요!\n\n📌 저장해 두고 필요할 때 꺼내 보세요\n💬 친구에게 공유하기\n🐑 ${handle} 팔로우하고 매일 쉬운 뉴스 받기\n\n출처: ${srcName}`,
     hashtags: ['모아뉴스', '카드뉴스', ...CATEGORIES[cat].tags, kw, '정보공유'],
     sources: [],
     factNotes: ['템플릿 모드로 생성되어 기사 내용이 충분히 반영되지 않았습니다. 본문을 직접 수정해 주세요.'],
@@ -442,4 +511,99 @@ export function buildCurationPrompt(items) {
 ${list}
 
 출력은 JSON 하나만: {"items":[{"index":0,"moaScore":0~100,"summary":"60자 이내 쉬운 요약","reason":"추천 이유 30자 이내","category":"${Object.keys(CATEGORIES).join('|')}"}]}`;
+}
+
+// ---------- 첫 장 배경 이미지 생성 ----------
+export const IMAGE_PROVIDERS = {
+  gpt: { label: 'GPT 이미지', defaultModel: 'gpt-image-1' },
+  gemini: { label: 'Gemini 이미지', defaultModel: 'gemini-2.5-flash-image' },
+};
+
+export function buildImagePrompt(content) {
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  const topic = content.news?.title || content.title || cat.desc;
+  return [
+    'Background illustration for a Korean Instagram card-news cover (portrait).',
+    `Topic: ${topic}`,
+    `Mood: ${cat.desc}. Soft, cute, cozy 3D clay / felt illustration, gentle lighting.`,
+    'Palette: cream (#FFF9F0), soft pink (#F5B8B5), sage green (#C9D8C0), warm brown accents.',
+    'Composition: keep the top 45% calm, simple and low-detail so a big headline can sit on it; place the main objects in the lower half and the sides.',
+    'Strictly no text, no letters, no numbers, no logos, no brand marks, no real people or faces.',
+  ].join('\n');
+}
+
+// 첫 장 커버용: 실제 사진 같은 매거진 스타일 배경
+export function buildCoverPrompt(content) {
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  const topic = content.news?.title || content.title || cat.desc;
+  const hook = content.cards?.[0]?.title?.replace(/\n/g, ' ') || '';
+  return [
+    'A photorealistic editorial photograph for the cover of a trendy Korean Instagram magazine card post (portrait).',
+    `News topic: ${topic}`,
+    hook ? `Headline mood: ${hook}` : '',
+    `Category: ${cat.desc}.`,
+    'Show a concrete, relatable everyday scene or object that instantly suggests this topic (e.g. objects on a desk, a street, a shop shelf, a phone screen glow, food close-up).',
+    'Style: candid 35mm film photo, natural light, soft grain, slightly muted warm tones, shallow depth of field, like a modern Korean lifestyle magazine.',
+    'Composition: the bottom 40% should be simpler and darker so white headline text can sit there.',
+    'People only from behind, cropped, or out of focus — no identifiable faces, no real celebrities or politicians.',
+    'Strictly no text, letters, numbers, logos, watermarks or brand marks anywhere in the image.',
+  ].filter(Boolean).join('\n');
+}
+
+export async function generateImage(provider, { apiKey, model, prompt, aspect = '4:5', fetchImpl = globalThis.fetch.bind(globalThis) }) {
+  if (!apiKey) throw new Error(`${PROVIDERS[provider]?.label || provider} API 키가 필요합니다.`);
+  if (provider === 'gpt') {
+    const data = await httpJson(fetchImpl, 'https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: model || IMAGE_PROVIDERS.gpt.defaultModel, prompt, size: '1024x1536', n: 1 }),
+    });
+    const b64 = data.data?.[0]?.b64_json;
+    if (b64) return `data:image/png;base64,${b64}`;
+    if (data.data?.[0]?.url) return data.data[0].url;
+    throw new Error('이미지 응답이 비어 있습니다.');
+  }
+  if (provider === 'gemini') {
+    const m = model || IMAGE_PROVIDERS.gemini.defaultModel;
+    const data = await httpJson(fetchImpl, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: aspect } },
+      }),
+    });
+    const part = (data.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData || p.inline_data);
+    const inline = part?.inlineData || part?.inline_data;
+    if (!inline) throw new Error('Gemini가 이미지를 돌려주지 않았습니다.');
+    return `data:${inline.mimeType || inline.mime_type || 'image/png'};base64,${inline.data}`;
+  }
+  throw new Error('배경 이미지는 GPT 또는 Gemini 키로 만들 수 있어요. (Claude는 이미지 생성을 지원하지 않음)');
+}
+
+// ---------- 첫 게시물: 모아 소개 ----------
+export function introContent() {
+  const blank = { highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' } };
+  const card = (type, o) => ({ ...blank, type, body: '', layout: 'big', ...o, style: { hideLabel: true, ...(o.style || {}) } });
+  return {
+    title: '안녕! 나는 모아야',
+    category: 'MOA',
+    preset: 'intro',
+    hook: '안녕! 나는 모아야',
+    cards: [
+      card('HOOK', { title: '안녕!\n나는 모아야', highlight: '모아', pose: 'wave', moaSays: '반가워!', style: { moaScale: 1.15 } }),
+      card('WHAT', { title: '세상에는\n매일 새로운 이야기가\n생기잖아.', highlight: '새로운 이야기', pose: 'curious', moaSays: '그치?' }),
+      card('WHY', { title: '그런데 뉴스는 어렵고\n트렌드는 너무 빨리\n지나가고…', highlight: '어렵고', pose: 'sleepy', moaSays: '나도 그래…' }),
+      card('SO WHAT', { title: '그래서 내가\n요즘 꼭 알아두면 좋은 것들을\n하나씩 모아오기로 했어.', highlight: '모아오기로', pose: 'idea', moaSays: '좋은 생각!' }),
+      card("MOA'S PICK", { title: '모아가 모아올 것들', layout: 'list', items: ['📰 뉴스', '🔥 트렌드', '🤖 AI', '🏠 생활'], pose: 'check', moaSays: '하나씩!' }),
+      card('LIFE/CHECK', { title: '어렵지 않게,\n가볍게,\n딱 필요한 만큼.', highlight: '딱 필요한 만큼', pose: 'heart', moaSays: '약속!' }),
+      card('CTA', { title: '앞으로\n모아가 모아올게.', highlight: '모아올게', layout: 'cta', body: '팔로우하고 같이 봐요', pose: 'wave', moaSays: '잘 부탁해!' }),
+    ],
+    moaComment: '앞으로 모아가 모아올게!',
+    cta: '팔로우하고 같이 봐요',
+    caption: '안녕! 나는 모아야 🐑\n\n세상에는 매일 새로운 이야기가 생기는데\n뉴스는 어렵고, 트렌드는 너무 빨리 지나가죠.\n\n그래서 모아가 요즘 꼭 알아두면 좋은 것들을\n어렵지 않게, 가볍게, 딱 필요한 만큼 모아올게요.\n\n📰 뉴스 🔥 트렌드 🤖 AI 🏠 생활\n\n앞으로 모아가 모아올게 🐑🤍\n팔로우하고 같이 봐요!',
+    hashtags: ['모아', '첫게시물', '안녕', '모아가모아올게', '뉴스요약', '카드뉴스', '트렌드', 'AI', '생활정보', '정보공유'],
+    sources: [],
+    factNotes: [],
+  };
 }
