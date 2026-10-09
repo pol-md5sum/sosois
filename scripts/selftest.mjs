@@ -75,4 +75,16 @@ assert.deepEqual([proj.clips[0].in, proj.clips[0].out, proj.clips[1].in, proj.cl
 assert.equal(SH.totalLen(proj), 12);
 assert.equal(proj.subtitles.length, 1, '전체 길이 밖 자막은 제외');
 assert.equal(proj.thumb.clip, 1, '썸네일 클립 번호 보정');
+assert.equal(SH.speakify('딸기가 통째로 들어감'), '딸기가 통째로 들어가요');
+assert.equal(SH.speakify('가격 6,500원임.'), '가격 6,500원이에요');
+assert.equal(SH.speakify('주차 공간 있음'), '주차 공간 있어요');
+const rich = SH.templatePlan({ clips: [{ duration: 30, in: 0, out: 30 }], desc: '성수동 카페 딸기라떼 리뷰. 크림이 엄청 두껍고 딸기가 통째로 들어감. 가격 6,500원임. 귀엽고 발랄하게.' }, '@moa.story');
+const richTexts = rich.subtitles.map((x) => x.text.replace('\n', ' '));
+assert.ok(rich.subtitles.length >= 5, richTexts.join(' / '));
+assert.ok(!richTexts.some((x) => x.includes('발랄')), '말투 요청은 자막에서 제외');
+assert.ok(richTexts.some((x) => x.includes('들어가요')), '메모체를 말투로');
+assert.ok(rich.thumbnail.title.includes('후기'));
+assert.ok(rich.subtitles.at(-1).end <= 30);
+assert.ok(SH.titleSrt({ clips: [{ duration: 8, in: 0, out: 8 }], thumb: { title: '제목\n둘째 줄' } }).includes('00:00:00,000 --> 00:00:08,000\n제목\n둘째 줄'));
+assert.ok(Object.values(SH.PLATFORMS).every((pf) => pf.w === 1080 && pf.h === 1920));
 console.log('shorts selftest OK');
