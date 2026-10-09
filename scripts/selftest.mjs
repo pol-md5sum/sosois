@@ -131,4 +131,13 @@ assert.ok(!AI2.TOPIC_KEYS().includes('PARENTING'), '모아 주제에는 해피�
 assert.ok(AI2.personaSystem('기본', { focus: '육아만 다룬다' }).includes('육아만 다룬다'));
 assert.equal(AI2.introContentHappy().cards.length, 7);
 assert.ok(!JSON.stringify(AI2.introContentHappy()).includes('모아'));
+// 원문 기사 링크
+assert.equal(AI2.directUrl('https://news.google.com/rss/articles/CBMiXyz'), '');
+assert.equal(AI2.directUrl('https://www.yna.co.kr/view/AKR2026'), 'https://www.yna.co.kr/view/AKR2026');
+const capL = AI2.withArticleLink('본문\n\n출처: 연합뉴스', { title: '부모급여 인상 - 연합뉴스', source: '연합뉴스', url: 'https://www.yna.co.kr/view/AKR2026', publishedAt: '2026-10-09T01:00:00Z' });
+assert.ok(capL.includes('📰 원문 기사\n연합뉴스 「부모급여 인상」 (2026.10.09)\n🔗 https://www.yna.co.kr/view/AKR2026'), capL);
+assert.ok(!capL.includes('출처: 연합뉴스'), '출처 한 줄은 원문 기사 블록으로 대체');
+const capG = AI2.withArticleLink('본문', { title: '제목', source: 'KBS', url: 'https://news.google.com/rss/articles/abc' });
+assert.ok(capG.includes('KBS 「제목」') && !capG.includes('news.google.com'), capG);
+assert.equal(AI2.withArticleLink(capL, { title: 'x' }), capL, '두 번 넣지 않음');
 console.log('profile selftest OK');

@@ -658,6 +658,31 @@ export async function generateImage(provider, { apiKey, model, prompt, aspect = 
   throw new Error('배경 이미지는 GPT 또는 Gemini 키로 만들 수 있어요. (Claude는 이미지 생성을 지원하지 않음)');
 }
 
+// ---------- 원문 기사 링크 ----------
+// 구글 뉴스 중계 주소(news.google.com)는 길고 언론사 주소가 아니라 캡션에는 넣지 않는다
+export const directUrl = (u) => {
+  try {
+    const x = new URL(String(u || ''));
+    return /^https?:$/.test(x.protocol) && !/(^|\.)news\.google\.com$/.test(x.hostname) && String(u).length <= 140 ? String(u) : '';
+  } catch { return ''; }
+};
+export function articleInfo(news = {}, sources = []) {
+  const title = String(news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
+  const outlet = news.source || sources.find((x) => x?.name)?.name || '';
+  const d = news.publishedAt ? new Date(news.publishedAt) : null;
+  const date = d && !Number.isNaN(d.getTime()) ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}` : '';
+  const link = directUrl(news.url) || sources.map((x) => directUrl(x?.url)).find(Boolean) || '';
+  return { title, outlet, date, link, anyLink: link || news.url || sources.find((x) => x?.url)?.url || '' };
+}
+// 캡션 끝에 원문 기사(언론사·제목·날짜·링크)를 붙인다. 템플릿의 "출처: …" 한 줄은 이 블록으로 바꾼다
+export function withArticleLink(caption, news, sources = []) {
+  const cap = String(caption || '');
+  const a = articleInfo(news, sources);
+  if (!a.title || cap.includes('📰 원문 기사')) return cap;
+  const block = ['📰 원문 기사', `${a.outlet ? `${a.outlet} ` : ''}「${a.title}」${a.date ? ` (${a.date})` : ''}`, a.link ? `🔗 ${a.link}` : ''].filter(Boolean).join('\n');
+  return `${cap.replace(/\n*출처:[^\n]*$/, '').trimEnd()}\n\n${block}`;
+}
+
 // ---------- 계정별 캐릭터 이름 반영 ----------
 // 기본 프롬프트·템플릿은 모아 기준이라, 다른 캐릭터 계정이면 이름·브랜드를 바꿔 넣는다
 export function personaSystem(base, { charName = '모아', charDesc = '', brand = '', focus = '' } = {}) {

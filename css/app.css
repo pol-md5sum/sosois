@@ -221,3 +221,5 @@ td select { width: auto; padding: 5px 8px; }
 .clip-place-grid select { width: 100%; }
 .font-preview { display: grid; gap: 6px; padding: 14px 16px; margin: 0 0 12px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
 .font-preview .fp-shorts { justify-self: start; padding: 6px 14px; border-radius: 10px; background: #8a8a8a; color: #fff; font-size: 26px; -webkit-text-stroke: 5px #000; paint-order: stroke fill; }
+.link-box { display: grid; gap: 6px; padding: 12px 14px; margin: 4px 0 10px; border-radius: 12px; background: #FFF8E7; border: 1px solid var(--line); }
+.link-box input { font-size: 13px; }

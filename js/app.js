@@ -1,7 +1,7 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
@@ -572,6 +572,8 @@ async function generateContent(news, provider, opts = {}) {
   // 예전 계정 표기(@moa)가 남아 있으면 현재 계정으로 바꾼다
   if (s.handle) body.caption = (body.caption || '').replace(/@moa(?![\w.])/g, s.handle);
   if (s.focus) body.caption = (body.caption || '').replace('매일 쉬운 뉴스 받기', '육아·살림 꿀정보 받기');
+  // 원문 기사(언론사·제목·날짜·링크)를 캡션 끝에
+  body.caption = withArticleLink(body.caption, { ...news, title: news.title || body.title }, body.sources || []);
   if (opts.fromUrl || opts.images?.length) {
     news.title = news.title || body.title;
     news.category = body.category;
@@ -774,6 +776,10 @@ async function editorView(id) {
     <div class="row"><h3 style="margin:0">📝 인스타그램 캡션</h3><span class="spacer"></span><button class="btn sm" id="cap-copy">캡션 + 해시태그 복사</button></div>
     <div class="field" style="margin-top:10px"><textarea id="cap" rows="9">${esc(c.caption)}</textarea></div>
     <div class="field"><label for="tags">해시태그 (띄어쓰기로 구분, ${c.hashtags.length}개)</label><input type="text" id="tags" value="${esc(c.hashtags.map((h) => `#${h}`).join(' '))}"></div>
+    ${(() => { const ai = articleInfo(c.news || {}, c.sources || []); return ai.anyLink ? `<div class="link-box">
+      <div class="row" style="flex-wrap:nowrap"><b class="small">🔗 원문 기사 링크</b><input type="text" id="art-link" value="${esc(ai.anyLink)}" readonly style="flex:1"><button class="btn sm" id="art-copy">링크 복사</button><a class="btn sm" href="${esc(ai.anyLink)}" target="_blank" rel="noopener noreferrer">열기</a>${c.caption?.includes('📰 원문 기사') ? '' : '<button class="btn sm" id="art-add">캡션에 원문 기사 넣기</button>'}</div>
+      <div class="small muted">인스타그램 캡션 속 링크는 눌리지 않아요. 이 링크를 <b>프로필 편집 → 링크</b>나 <b>스토리 링크 스티커</b>에 붙여 넣고, 캡션에는 "원문 링크는 프로필에"처럼 안내해 주세요.${ai.link ? '' : ' (언론사 주소를 찾지 못해 구글 뉴스 연결 주소예요 — 캡션에는 언론사·제목만 넣었어요.)'}</div>
+    </div>` : ''; })()}
     <div class="small muted">원본 기사: ${c.news?.url ? `<a href="${esc(c.news.url)}" target="_blank" rel="noopener noreferrer">${esc(c.news.title)}</a>` : esc(c.news?.title || '-')}
       · 출처: ${c.sources.map((s) => (s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name || s.url)}</a>` : esc(s.name))).join(', ') || '-'}
       · 생성: ${esc(new Date(c.createdAt).toLocaleString('ko-KR'))}</div>
@@ -910,6 +916,8 @@ async function editorView(id) {
   $('#e-cat').addEventListener('change', async (e) => { c.category = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#cap').addEventListener('input', (e) => { c.caption = e.target.value; persist(); });
   $('#tags').addEventListener('input', (e) => { c.hashtags = e.target.value.split(/[\s,]+/).map((h) => h.replace(/^#+/, '')).filter(Boolean); persist(); });
+  $('#art-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#art-link').value); toast('원문 기사 링크를 복사했어요.'); } catch { $('#art-link').select(); toast('복사 권한이 없어요. 선택된 링크를 직접 복사해 주세요.', true); } });
+  $('#art-add')?.addEventListener('click', () => { c.caption = withArticleLink(c.caption, c.news || {}, c.sources || []); $('#cap').value = c.caption; persist(); $('#art-add').remove(); toast('캡션 끝에 원문 기사를 넣었어요.'); });
   $('#cap-copy').addEventListener('click', async () => {
     const text = `${c.caption}\n\n${c.hashtags.map((h) => `#${h}`).join(' ')}`;
     try { await navigator.clipboard.writeText(text); toast('캡션을 복사했어요.'); } catch { toast('복사 권한이 없어요. 직접 선택해서 복사해 주세요.', true); }
