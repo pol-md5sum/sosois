@@ -15,10 +15,16 @@ export const PLATFORMS = {
 export const SAFE_ALL = { top: 0.14, bottom: 0.35, left: 0.06, right: 0.14 };
 // 캡컷에서 많이 쓰는 굵은 고딕 계열 (모두 웹폰트로 불러옴)
 export const FONTS = {
-  pretendard: { label: '프리텐다드 ExtraBold (캡컷 기본 글씨 느낌)', css: '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif', weight: 800 },
-  blackhan: { label: '검은고딕 (Black Han Sans)', css: '"Black Han Sans", "Pretendard Variable", sans-serif', weight: 400 },
-  dohyeon: { label: '도현체', css: '"Do Hyeon", "Pretendard Variable", sans-serif', weight: 400 },
-  jua: { label: '주아체 (둥근 글씨)', css: '"Jua", "Pretendard Variable", sans-serif', weight: 400 },
+  pblack: { label: '프리텐다드 블랙 — 요즘 릴스·쇼츠 기본', css: '"PretendardBlack", "Pretendard Variable", "Apple SD Gothic Neo", sans-serif', weight: 900 },
+  ssurround: { label: '카페24 써라운드 — 둥글고 귀엽게 (육아·생활)', css: '"Cafe24Ssurround", "PretendardBlack", sans-serif', weight: 400 },
+  gmarket: { label: 'G마켓 산스 Bold — 썸네일 단골', css: '"GmarketSansBold", "PretendardBlack", sans-serif', weight: 400 },
+  suit: { label: '수트 헤비 — 단단한 고딕', css: '"SUITHeavy", "PretendardBlack", sans-serif', weight: 400 },
+  bagel: { label: '베이글 팻 원 — 통통한 썸네일 글씨', css: '"Bagel Fat One", "Cafe24Ssurround", sans-serif', weight: 400 },
+  gasoek: { label: '가석 원 — 아주 굵은 임팩트', css: '"Gasoek One", "PretendardBlack", sans-serif', weight: 400 },
+  pretendard: { label: '프리텐다드 ExtraBold — 캡컷 기본 글씨 느낌', css: '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif', weight: 800 },
+  blackhan: { label: '검은고딕 (옛 스타일)', css: '"Black Han Sans", "Pretendard Variable", sans-serif', weight: 400 },
+  dohyeon: { label: '도현체 (옛 스타일)', css: '"Do Hyeon", "Pretendard Variable", sans-serif', weight: 400 },
+  jua: { label: '주아체 (옛 스타일)', css: '"Jua", "Pretendard Variable", sans-serif', weight: 400 },
 };
 const BODY_FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
 const PINK = '#F0506E';
@@ -120,7 +126,9 @@ function shortsPrompt(p, handle) {
   lines.push('클립(순서대로):');
   p.clips.forEach((c, i) => lines.push(`  ${i}. ${c.name} — 원본 ${c.duration.toFixed(1)}초, 현재 구간 ${(c.in || 0).toFixed(1)}~${(c.out ?? c.duration).toFixed(1)}초`));
   lines.push(`첨부 이미지는 각 클립의 대표 장면이다(순서 동일).`);
-  lines.push(`캡션 팔로우 문구: "🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기"`);
+  const s = getSettings();
+  const emoji = s.focus ? '🧸' : '🐑';
+  lines.push(`캡션 팔로우 문구: "${emoji} ${handle} 팔로우하고 ${s.focus ? '육아·살림 꿀정보 받기' : '매일 쉬운 소식 받기'}"`);
   lines.push('');
   lines.push(`JSON 형식: {"title":"프로젝트 제목","hook":"훅 문장","clips":[{"index":0,"in":0,"out":5}],"subtitles":[{"start":0,"end":2,"text":"자막","hl":"핵심어"}],"thumbnail":{"title":"썸네일 제목(2~3줄, 줄바꿈 \\n)","highlight":"강조어","clip":0,"time":1.5},"captions":{"instagram":{"text":"","hashtags":[]},"youtube":{"title":"","description":"","tags":[]},"naver":{"title":"","description":"","tags":[]}},"notes":["확인이 필요한 점"]}`);
   lines.push('subtitles의 start/end는 클립 구간을 이어 붙인 전체 영상 기준 초다.');
@@ -166,6 +174,9 @@ export function applyPlan(p, plan) {
 // ---------- AI 없이 만들기 (규칙 기반 다듬기) ----------
 const TONE_RE = /(느낌|톤|분위기|말투|스타일|컨셉|콘셉트)(으로|로)?(\s*(해|써|만들어)\s*(줘|주세요)?)?\s*[.!~]*$|^(?!.*가게[.!~]*$)[가-힣\s,]{0,14}게\s*(해\s*줘|써\s*줘|만들어\s*줘|부탁해요?)?[.!~]*$/;
 const KIND = [
+  { re: /이유식|유아식|아기\s?밥|레시피/, suffix: '레시피', end: '저장해두고 따라 만들어 보세요!' },
+  { re: /육아템|아기용품|유아용품|출산\s?준비|출산용품|기저귀|젖병|유모차|카시트/, suffix: '육아템 후기', end: '저장해두고 필요할 때 꺼내 보기!' },
+  { re: /살림템|생활템|생활용품|다이소|수납|정리|청소|주방/, suffix: '살림템 추천', end: '저장해두고 장 볼 때 보기!' },
   { re: /리뷰|후기|다녀|가봤|먹어|마셔|써봤|사봤|내돈내산|방문|맛집|카페/, suffix: '솔직 후기', end: '저장해두고 꼭 가보세요!' },
   { re: /방법|꿀팁|팁|하는\s?법|노하우|정리|순서/, suffix: '꿀팁 정리', end: '저장해두고 따라 해보세요!' },
   { re: /브이로그|일상|하루|vlog/i, suffix: '하루 기록', end: '오늘 하루도 수고했어요!' },
@@ -238,7 +249,7 @@ function keywords(text) {
   return out;
 }
 
-export function templatePlan(p, handle, charName = '모아') {
+export function templatePlan(p, handle, charName = '모아', { emoji = '🐑', tags = ['릴스', '숏폼'], follow = '매일 쉬운 소식 받기' } = {}) {
   const raw = String(p.desc || '').split(/(?<=[.!?。…~])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
   const tone = raw.filter((x) => TONE_RE.test(x));
   const facts = raw.filter((x) => !TONE_RE.test(x));
@@ -270,7 +281,7 @@ export function templatePlan(p, handle, charName = '모아') {
     subtitles: subs,
     thumbnail: { title, highlight: kind.suffix || kw[0] || '', clip: 0, time: 1 },
     captions: {
-      instagram: { text: `${oneLine} 👀\n\n${bullet}\n\n📌 저장해 두고 다시 보기\n💬 같이 볼 친구 태그하기\n🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기`, hashtags: [...new Set([...kw, '릴스', '숏폼', String(charName).replace(/\s/g, '')])].slice(0, 15) },
+      instagram: { text: `${oneLine} 👀\n\n${bullet}\n\n📌 저장해 두고 다시 보기\n💬 같이 볼 친구 태그하기\n${emoji} ${handle} 팔로우하고 ${follow}`, hashtags: [...new Set([...kw, ...tags, String(charName).replace(/\s/g, '')])].slice(0, 15) },
       youtube: { title: `${oneLine} #Shorts`.slice(0, 100), description: `${points.slice(0, 3).join(' · ')}\n\n${handle} 구독하고 더 보기`, tags: [...kw, 'Shorts', '쇼츠'].slice(0, 10) },
       naver: { title: oneLine.slice(0, 30), description: points.slice(0, 2).join(' · '), tags: [...kw, '클립'].slice(0, 10) },
     },
@@ -290,8 +301,9 @@ async function framesForAI(p, vids) {
 
 export async function aiPlan(p, provider, vids) {
   const s = getSettings();
+  const system = s.focus ? `${SHORTS_SYSTEM}\n\n[이 계정의 주제 · 최우선]\n${s.focus}\n해시태그는 육아·아기·생활템 관련 위주로(예: 육아, 육아템, 아기, 육아맘, 살림템).` : SHORTS_SYSTEM;
   const text = await callModel(provider, {
-    apiKey: getKeys()[provider], model: s.models[provider], system: SHORTS_SYSTEM,
+    apiKey: getKeys()[provider], model: s.models[provider], system,
     prompt: shortsPrompt(p, s.handle), images: await framesForAI(p, vids), maxTokens: 8000, browser: true,
   });
   return extractJson(text);
@@ -382,8 +394,8 @@ function richLine(ctx, line, hl, cx, y, { fill, accent, stroke, strokeW }) {
 // ---------- 글자 디자인 (캡컷 텍스트 패널처럼) ----------
 // size: 글자 크기(px, 1080 기준) · letter: 자간(px) · line: 행간(배) · stroke: 테두리 두께(px) · y: 세로 위치(화면 %)
 export const TEXT_DEFAULTS = {
-  title: { font: 'pretendard', size: 100, letter: 0, line: 1.2, stroke: 22, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 21, shadow: true, box: false, boxColor: '#FFFFFF', maxLines: 3 },
-  sub: { font: 'pretendard', size: 88, letter: 0, line: 1.22, stroke: 20, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 50, shadow: true, box: false, boxColor: '#000000', maxLines: 2 },
+  title: { font: 'pblack', size: 100, letter: 0, line: 1.2, stroke: 22, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 21, shadow: true, box: false, boxColor: '#FFFFFF', maxLines: 3 },
+  sub: { font: 'pblack', size: 88, letter: 0, line: 1.22, stroke: 20, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 50, shadow: true, box: false, boxColor: '#000000', maxLines: 2 },
 };
 // 캡컷 "텍스트 템플릿" 같은 빠른 스타일
 export const TEXT_PRESETS = {
@@ -422,7 +434,7 @@ function fitLines(ctx, text, f, size, minSize, maxW, maxLines) {
 // 글자 블록 그리기: 테두리 → (상자) → 글자 순서. cy는 블록 가운데 높이
 export function drawTextBlock(ctx, text, hl, st, cy) {
   if (!String(text || '').trim()) return null;
-  const f = FONTS[st.font] || FONTS.pretendard;
+  const f = FONTS[st.font] || FONTS.pblack;
   ctx.save();
   ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
   setLetter(ctx, st.letter);
@@ -649,7 +661,7 @@ export function guideText(p, { cutHasTitle = false } = {}) {
   const stT = textOf(p, 'title');
   const st = textOf(p, 'sub');
   const f = FONTS[st.font] || FONTS.pretendard;
-  const lines = ['MOA 숏폼 — 캡컷 편집 안내', '', `제목: ${p.title}`, `전체 길이: ${totalLen(p).toFixed(1)}초`, ''];
+  const lines = [`${getSettings().brand || 'MOA'} 숏폼 — 캡컷 편집 안내`, '', `제목: ${p.title}`, `전체 길이: ${totalLen(p).toFixed(1)}초`, ''];
   lines.push('[영상 크기] 인스타 릴스·유튜브 쇼츠·네이버 클립 모두 9:16 세로 1080×1920 하나로 올리면 됩니다.');
   Object.values(PLATFORMS).forEach((pf) => lines.push(`  - ${pf.label}: ${pf.note}`));
   lines.push('');
@@ -698,7 +710,7 @@ export function guideText(p, { cutHasTitle = false } = {}) {
 // 화면
 // =====================================================================
 export function createShortsViews(ui) {
-  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor } = ui;
+  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc } = ui;
 
   async function readMeta(file) {
     const v = await loadVideoEl(file);
@@ -742,12 +754,12 @@ export function createShortsViews(ui) {
       ${items.map((p) => `<tr><td><a href="#/shorts/${p.id}"><b>${esc(p.title || '제목 없음')}</b></a></td><td>${p.clips.length}개</td><td>${totalLen(p).toFixed(1)}초</td>
       <td class="small">${esc(new Date(p.updatedAt || p.createdAt).toLocaleString('ko-KR'))}</td>
       <td><div class="row"><a class="btn sm" href="#/shorts/${p.id}">열기</a><button class="btn sm danger" data-del="${p.id}">삭제</button></div></td></tr>`).join('')}
-    </table></div>` : '<div class="panel empty"><img src="assets/moa/moa.png" alt=""><p>아직 만든 숏폼이 없어요.</p></div>'}`;
+    </table></div>` : `<div class="panel empty"><img src="${esc(charSrc ? charSrc() : 'assets/moa/moa.png')}" alt=""><p>아직 만든 숏폼이 없어요.</p></div>`}`;
     $('#sh-files').addEventListener('change', async (e) => {
       const files = [...e.target.files];
       if (!files.length) return;
       const s = getSettings();
-      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, topTitle: true, fit: 'auto', motion: false, charVideo: { on: !!s.showCharVideo, pos: 'br', size: 1 }, subtitles: [], captions: null, thumb: null, notes: [] };
+      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, topTitle: true, fit: 'auto', motion: false, charVideo: { on: !!s.showCharVideo, pos: 'br', size: 1 }, text: { title: { ...TEXT_DEFAULTS.title, font: FONTS[s.shortsFont] ? s.shortsFont : 'pblack' }, sub: { ...TEXT_DEFAULTS.sub, font: FONTS[s.shortsFont] ? s.shortsFont : 'pblack' } }, subtitles: [], captions: null, thumb: null, notes: [] };
       saveShort(p);
       const n = await addFiles(p, files);
       if (n) location.hash = `#/shorts/${p.id}`; else { await deleteShort(p.id); listView(); }
@@ -792,7 +804,7 @@ export function createShortsViews(ui) {
         <section class="panel" style="margin-top:14px">
           <h3>② 어떤 영상인가요?</h3>
           <div class="field"><label for="sh-desc">영상 설명 · 자막에 넣고 싶은 내용 (대충 적어도 AI가 다듬어요)</label>
-            <textarea id="sh-desc" rows="5" placeholder="예) 성수동 새로 생긴 카페 딸기라떼 리뷰. 크림이 엄청 두껍고 딸기가 통째로 들어감. 가격 6,500원. 웨이팅 20분. 귀엽고 발랄하게.">${esc(p.desc)}</textarea></div>
+            <textarea id="sh-desc" rows="5" placeholder="${s.focus ? '예) 8개월 아기 단호박 이유식 만들기. 단호박 푹 쪄서 곱게 으깸. 쌀미음이랑 1:1로 섞음. 아기가 완전 잘 먹음. 다정하게.' : '예) 성수동 새로 생긴 카페 딸기라떼 리뷰. 크림이 엄청 두껍고 딸기가 통째로 들어감. 가격 6,500원. 웨이팅 20분. 귀엽고 발랄하게.'}">${esc(p.desc)}</textarea></div>
           <div class="two">
             <div class="field"><label for="sh-target">목표 길이</label><select id="sh-target">${[[0, '원본 그대로'], [15, '15초'], [30, '30초'], [60, '60초'], [90, '90초']].map(([v, l]) => `<option value="${v}" ${+p.target === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
             <div class="field"><label for="sh-fit">영상 배치 (전체)</label><select id="sh-fit">${Object.entries(FITS).map(([k, v]) => `<option value="${k}" ${(p.fit || 'auto') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
@@ -1114,17 +1126,18 @@ export function createShortsViews(ui) {
       persist(); drawSubs(); toast('전체 길이에 맞게 나눴어요.');
     });
 
+    const tplOpts = () => (s.focus ? { emoji: '🧸', tags: ['육아', '육아템', '아기', '육아맘', '살림템'], follow: '육아·살림 꿀정보 받기' } : {});
     const runPlan = async (mode) => {
       if (!p.clips.length) { toast('클립을 먼저 올려 주세요.', true); return; }
       if (!p.desc.trim()) { toast('어떤 영상인지 간단히 적어 주세요.', true); return; }
       const prov = $('#sh-prov').value;
       if (mode === 'ai' && !getKeys()[prov]) { toast(`${PROVIDERS[prov].label} API 키가 없어요. 설정에서 넣거나 "AI 없이 만들기"를 써 주세요.`, true); return; }
-      const box = modal('<div data-busy><h2 style="margin-top:0">🐑 모아가 영상 보는 중…</h2><p class="small muted">장면을 보고 자막·썸네일·캡션을 만들고 있어요. 보통 20초~1분 걸려요.</p></div>');
+      const box = modal(`<div data-busy><h2 style="margin-top:0">${s.focus ? '🧸' : '🐑'} ${esc(s.charName)}가 영상 보는 중…</h2><p class="small muted">장면을 보고 자막·썸네일·캡션을 만들고 있어요. 보통 20초~1분 걸려요.</p></div>`);
       try {
         if (mode !== 'ai' && p.target && p.clips.every((c) => (c.in || 0) === 0 && (c.out ?? c.duration) >= c.duration - 0.05)) autoTrim(p, p.target);
-        const plan = mode === 'ai' ? await aiPlan(p, prov, vids) : templatePlan(p, getSettings().handle, getSettings().charName);
+        const plan = mode === 'ai' ? await aiPlan(p, prov, vids) : templatePlan(p, getSettings().handle, getSettings().charName, tplOpts());
         applyPlan(p, plan);
-        if (!p.subtitles.length) applyPlan(p, { ...templatePlan(p, getSettings().handle, getSettings().charName), clips: [] });
+        if (!p.subtitles.length) applyPlan(p, { ...templatePlan(p, getSettings().handle, getSettings().charName, tplOpts()), clips: [] });
         p.model = mode === 'ai' ? prov : 'template';
         persist();
         closeModal();

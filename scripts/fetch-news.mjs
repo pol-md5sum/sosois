@@ -24,6 +24,15 @@ export const FEEDS = [
   { category: 'CULTURE', url: q('드라마 OR 영화 OR 전시 OR 공연 OR 넷플릭스') },
   { category: 'SHOPPING', url: q('쇼핑 OR 할인 OR 세일 OR 쿠팡 OR 신상') },
 ];
+// 해피해피(육아·아기·생활용품·생활템) 계정용 피드 — MOA 뉴스와 따로 묶고 점수를 매긴다
+export const HAPPY_FEEDS = [
+  { category: 'PARENTING', url: q('육아 OR 부모급여 OR 아동수당 OR 어린이집 OR 육아휴직') },
+  { category: 'PARENTING', url: q('아이 키우기 OR 육아맘 OR 육아 꿀팁 OR 영유아 건강') },
+  { category: 'BABY', url: q('아기용품 OR 유아용품 OR 출산용품 OR 이유식 OR 기저귀 OR 분유') },
+  { category: 'BABY', url: q('베이비페어 OR 유모차 OR 카시트 OR 신생아 OR 어린이 제품 리콜') },
+  { category: 'LIVING', url: q('생활용품 OR 주방용품 OR 세제 OR 수납 OR 청소용품 OR 살림') },
+  { category: 'ITEM', url: q('생활템 OR 살림템 OR 육아템 OR 꿀템 OR 다이소 신상 OR 품절템') },
+];
 const TRENDS_URL = 'https://trends.google.com/trending/rss?geo=KR';
 
 // ---------- RSS 파싱 (의존성 없이) ----------
@@ -120,6 +129,23 @@ export function classify(title, fallback = 'NEWS', only = null) {
   return best;
 }
 
+export const HAPPY_KW = {
+  PARENTING: ['육아', '부모', '엄마', '아빠', '어린이집', '유치원', '부모급여', '아동수당', '육아휴직', '출산', '임신', '영유아', '아이', '돌봄', '발달'],
+  BABY: ['아기', '신생아', '유아', '이유식', '기저귀', '분유', '젖병', '유모차', '카시트', '아기띠', '베이비', '출산용품', '유아용품', '아기용품'],
+  LIVING: ['생활용품', '주방', '세제', '수납', '정리', '청소', '살림', '욕실', '세탁', '냄비', '프라이팬', '청소기'],
+  ITEM: ['생활템', '살림템', '육아템', '꿀템', '추천템', '다이소', '품절', '인기템', '신상', '가성비'],
+};
+export function classifyHappy(text, fallback) {
+  let best = fallback;
+  let bestHits = 0;
+  for (const [cat, words] of Object.entries(HAPPY_KW)) {
+    const hits = countHitsKW(text, words);
+    if (hits > bestHits) { best = cat; bestHits = hits; }
+  }
+  return best;
+}
+const countHitsKW = (t, list) => list.reduce((n, w) => n + (t.includes(w) ? 1 : 0), 0);
+
 // 사건·사고·법적 분쟁·제재 성격의 기사는 브랜드 이름(쿠팡, 올리브영 등)이 들어 있어도 생활·쇼핑 주제가 아니라 뉴스로 본다
 export const HARD_NEWS_KW = ['개인정보', '유출', '해킹', '과징금', '소송', '제재', '수사', '압수수색', '기소', '판결', '법원', '공정위', '공정거래위원회', '고발', '징계', '사고', '화재', '사망', '부상', '리콜', '불매', '노조', '파업', '갑질', '논란', '의혹', '피해자', '집단소송', '청문회', '국정감사'];
 const LIFESTYLE = ['SHOPPING', 'FOOD', 'BEAUTY', 'CULTURE', 'LIFE', 'TREND'];
@@ -131,10 +157,10 @@ export function hardNewsOverride(text, category) {
 }
 
 // 주제마다 최소 perCat개를 보장하고 나머지는 점수순으로 채운다
-export function selectBalanced(items, perCat = 12, total = 140) {
+export function selectBalanced(items, perCat = 12, total = 140, cats = Object.keys(CATEGORIES)) {
   const out = [];
   const seen = new Set();
-  for (const cat of Object.keys(CATEGORIES)) {
+  for (const cat of cats) {
     items.filter((x) => x.category === cat).slice(0, perCat).forEach((x) => { out.push(x); seen.add(x); });
   }
   for (const x of items) { if (out.length >= total) break; if (!seen.has(x)) out.push(x); }
@@ -169,7 +195,46 @@ export function scoreCluster(c, now = Date.now()) {
   return { scores: s, moaScore: clamp(moa), buzzScore: s.buzz };
 }
 
+// ---------- 해피해피 적합도 (육아 중인 부모 기준) ----------
+const HKW = {
+  target: ['엄마', '아빠', '부모', '육아', '아기', '아이', '영유아', '신생아', '맘', '임산부', '어린이'],
+  life: ['지원', '신청', '가격', '할인', '출시', '신상', '추천', '꿀팁', '방법', '리콜', '안전', '인증', '무료', '혜택', '정리', '수납'],
+  avoid: ['학대', '살해', '사망', '숨져', '폭행', '유기', '성범죄', '실종', '참사', '구속', '기소', '탄핵', '여당', '야당'],
+};
+export function scoreHappy(c, now = Date.now()) {
+  const t = c.title + ' ' + c.sources.map((s) => s.title).join(' ');
+  const hours = Math.max(0, (now - new Date(c.publishedAt).getTime()) / 36e5) || 24;
+  const outlets = new Set(c.sources.map((s) => s.name).filter(Boolean)).size;
+  const avoid = countHits(t, HKW.avoid);
+  const s = {
+    recency: clamp(100 - hours * 3.5),
+    buzz: clamp(15 + outlets * 14),
+    sns: clamp(35 + countHits(t, KW.sns) * 18 - avoid * 15),
+    target: clamp(30 + countHits(t, HKW.target) * 18),
+    life: clamp(30 + countHits(t, HKW.life) * 16),
+    ease: clamp(85 - Math.max(0, c.title.length - 30) * 1.5),
+    card: clamp(50 + (outlets >= 2 ? 15 : 0) + (/\d/.test(c.title) ? 10 : 0) - avoid * 20),
+  };
+  const fit = 0.15 * s.recency + 0.12 * s.buzz + 0.1 * s.sns + 0.25 * s.target + 0.2 * s.life + 0.08 * s.ease + 0.1 * s.card - avoid * 12;
+  return { scores: s, moaScore: clamp(fit), buzzScore: s.buzz };
+}
+
 // ---------- 수집 ----------
+export function buildHappyItems(hraw, now = Date.now()) {
+  const list = cluster(hraw).map((c, i) => {
+    const text = c.title + ' ' + c.sources.map((x) => x.title).join(' ');
+    c.category = classifyHappy(text, [...c.categories][0]);
+    const { scores, moaScore, buzzScore } = scoreHappy(c, now);
+    return {
+      id: `h${now.toString(36)}${i}`, channel: 'happy', category: c.category, title: c.title,
+      summary: c.sources.map((s) => s.title).filter((t) => t && t !== c.title).slice(0, 2).join(' · '),
+      source: c.source, url: c.url, publishedAt: new Date(c.publishedAt).toISOString(), sources: c.sources.slice(0, 8),
+      outlets: [...new Set(c.sources.map((s) => s.name).filter(Boolean))], scores, moaScore, buzzScore, reason: '',
+    };
+  }).filter((x) => x.scores.target > 30 || x.category !== 'PARENTING' || /육아|아이|아기|부모/.test(x.title))
+    .sort((a, b) => b.moaScore - a.moaScore);
+  return selectBalanced(list, 15, 70, ['PARENTING', 'BABY', 'LIVING', 'ITEM']);
+}
 async function fetchText(url) {
   const res = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (MOA Content Studio news bot)' }, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -246,7 +311,19 @@ async function main() {
   } catch (e) {
     errors.push(`AI 큐레이션: ${e.message}`);
   }
-  items = selectBalanced(items);
+  items = selectBalanced(items, 12, 140, Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].scope));
+
+  // 해피해피 피드
+  const hraw = [];
+  for (const f of HAPPY_FEEDS) {
+    try {
+      parseRss(await fetchText(f.url)).slice(0, 25).forEach((it) => hraw.push({ ...it, category: f.category }));
+    } catch (e) {
+      errors.push(`${f.category}: ${e.message}`);
+    }
+  }
+  const happyItems = buildHappyItems(hraw, now);
+  items = [...items, ...happyItems];
   const byCategory = Object.fromEntries(Object.keys(CATEGORIES).map((k) => [k, items.filter((x) => x.category === k).length]));
 
   let trends = [];

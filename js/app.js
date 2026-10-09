@@ -1,18 +1,36 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
   putBg, deleteBg, getBgsFor, listProfiles, getActiveProfile, setActiveProfile, saveProfile, deleteProfile, CHARACTERS, charOf, charNameOf, poseKey, mineOnly, profileOfItem,
 } from './store.js';
-import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS } from './render.js';
+import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS, TOON_FONT_LABELS, BUBBLE_FONTS, BUBBLE_FONT_LABELS } from './render.js';
 
-import { createShortsViews } from './shorts.js';
+import { createShortsViews, FONTS as SHORTS_FONTS } from './shorts.js';
 
-const TOPICS = () => TOPIC_KEYS().map((k) => [k, CATEGORIES[k]]);
+// 계정별 브랜드: 주제·이름·이모지·슬로건 (해피해피는 육아·아기·생활용품·생활템만)
+const BR = () => {
+  const s = getSettings();
+  const prof = getActiveProfile();
+  const topics = (s.topics || TOPIC_KEYS()).filter((k) => CATEGORIES[k]);
+  return { name: s.charName, emoji: charOf(prof).emoji || '✨', slogan: s.slogan || `요즘 뭐가 뜨는지, ${s.charName}가 알려줄게.`, topics, baseTag: s.baseTag || s.charName, audience: s.audience || '', focus: s.focus || '', fit: `${prof.id === 'moa' ? 'MOA' : s.charName} 적합도`, happy: !!s.focus };
+};
+const TOPICS = () => BR().topics.map((k) => [k, CATEGORIES[k]]);
+const catLabel = (k) => { const v = CATEGORIES[k]; return v ? `${v.emoji} ${v.scope ? v.name : v.label}` : k; };
+// 카테고리 선택지는 현재 계정 주제만 (지금 값이 다른 주제면 그것도 보이게)
+const catOptions = (cur) => [...new Set([...BR().topics, ...(cur && CATEGORIES[cur] ? [cur] : [])])].map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(catLabel(k))}</option>`).join('');
+// 뉴스·트렌드를 현재 계정 주제로 거른다
+const HAPPY_TREND_RE = /육아|아기|아이|유아|출산|임신|어린이|키즈|엄마|아빠|부모|이유식|기저귀|분유|유모차|살림|생활용품|주방|청소|세제|수납|다이소|생활템|꿀템|육아템/;
+function scopeNews(data) {
+  const b = BR();
+  const items = (data.items || []).filter((n) => b.topics.includes(n.category));
+  const trends = b.happy ? (data.trends || []).filter((t) => HAPPY_TREND_RE.test(`${t.keyword} ${(t.news || []).map((n) => n.title).join(' ')}`)) : (data.trends || []);
+  return { ...data, items, trends };
+}
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -76,7 +94,7 @@ function setCatOverride(n, cat) {
   try { localStorage.setItem('moa.catOverride', JSON.stringify(ov)); } catch { /* 저장 공간 부족 시 이번 화면에서만 반영 */ }
   n.category = cat;
 }
-const catSelect = (cur, attrs) => `<select class="cat-select" ${attrs} aria-label="주제 변경">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v.emoji} ${esc(v.label)}</option>`).join('')}</select>`;
+const catSelect = (cur, attrs) => `<select class="cat-select" ${attrs} aria-label="주제 변경">${catOptions(cur)}</select>`;
 const findNews = (id) => NEWS?.items.find((n) => n.id === id);
 
 // 렌더 환경: 현재 계정의 캐릭터(기본 이미지 + 포즈)와 설정
@@ -134,6 +152,19 @@ function drawProfileSwitch() {
   const custom = prof.char === 'custom';
   if (custom) getAllPoses().then((st) => { const b = st[poseKey(prof.id, 'base')]; if (b) $('#ps-img').src = URL.createObjectURL(b); });
   document.documentElement.style.setProperty('--accent-profile', prof.toonAccent || '#F0506E');
+  // 사이드바 로고·슬로건·파비콘도 계정에 맞춘다 (해피해피 계정에는 모아가 나오지 않게)
+  const b = BR();
+  const logo = $('.brand img');
+  if (logo) { logo.src = charOf(prof).base || 'assets/moa/moa.png'; }
+  const bt = $('.brand span');
+  if (bt) bt.innerHTML = `<b>${esc(prof.id === 'moa' ? 'MOA' : b.name)}</b> Content Studio`;
+  const foot = $('.side-foot');
+  if (foot) foot.textContent = b.slogan;
+  const fav = document.querySelector('link[rel="icon"]');
+  if (fav && charOf(prof).base) fav.href = charOf(prof).base;
+  document.title = `${prof.id === 'moa' ? 'MOA' : b.name} Content Studio`;
+  const intro = $('#nav a[data-route="intro"]');
+  if (intro) intro.textContent = `${b.emoji} 첫 게시물 만들기`;
 }
 
 // 카드 배경 이미지 (콘텐츠별)
@@ -204,9 +235,9 @@ function newsCard(n) {
     <h3><a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a></h3>
     ${n.summary ? `<p class="small muted" style="margin:0">${esc(n.summary)}</p>` : ''}
     <div class="small muted">출처: ${esc((n.outlets || [n.source]).filter(Boolean).slice(0, 4).join(', '))}${n.outlets?.length > 4 ? ` 외 ${n.outlets.length - 4}곳` : ''}</div>
-    <div class="scores"><span><b style="color:var(--brown)">MOA 적합도</b></span><div class="meter"><i style="width:${n.moaScore}%"></i></div><b style="color:var(--brown)">${n.moaScore}</b>
+    <div class="scores"><span><b style="color:var(--brown)">${esc(BR().fit)}</b></span><div class="meter"><i style="width:${n.moaScore}%"></i></div><b style="color:var(--brown)">${n.moaScore}</b>
       <span>화제성</span><div class="meter"><i style="width:${n.buzzScore}%;background:var(--green)"></i></div><span>${n.buzzScore}</span></div>
-    ${n.reason ? `<div class="small">🐑 ${esc(n.reason)}</div>` : ''}
+    ${n.reason ? `<div class="small">${BR().emoji} ${esc(n.reason)}</div>` : ''}
     <details class="small"><summary class="muted">세부 점수</summary><div class="scores" style="margin-top:6px">${scores}</div></details>
     <div class="foot"><button class="btn primary sm" data-make="${esc(n.id)}">이 뉴스로 카드뉴스 만들기</button></div>
   </article>`;
@@ -229,20 +260,21 @@ function bindMake(root) {
 
 // ---------- 대시보드 ----------
 async function dashboard() {
-  const data = await loadNews();
+  const data = scopeNews(await loadNews());
   const contents = mineOnly(listContents());
   const cnt = (s) => contents.filter((c) => c.status === s).length;
   const top = pickTop(data.items, 3);
   const keys = availableProviders();
+  const b = BR();
   view.innerHTML = `
   <section class="hero">
     <div>
-      <h1>요즘 뭐가 뜨는지, 모아가 알려줄게.</h1>
-      <p class="sub" style="margin-bottom:16px">오늘의 뉴스를 고르면 AI가 7장 카드뉴스·캡션·해시태그까지 한 번에 만들어요.</p>
+      <h1>${esc(b.slogan)}</h1>
+      <p class="sub" style="margin-bottom:16px">${b.happy ? '육아·아기용품·생활용품·생활템 소식을 고르면' : '오늘의 뉴스를 고르면'} AI가 7장 카드뉴스·캡션·해시태그까지 한 번에 만들어요.</p>
       <div class="row">
-        <button class="btn primary big" id="oneclick">🐑 오늘의 콘텐츠 만들기</button>
+        <button class="btn primary big" id="oneclick">${b.emoji} 오늘의 콘텐츠 만들기</button>
         <a class="btn big" href="#/news">오늘의 뉴스 보기</a>
-        <button class="btn big pink" id="intro">🐑 첫 게시물 (모아 소개)</button>
+        <button class="btn big pink" id="intro">${b.emoji} 첫 게시물 (${esc(b.name)} 소개)</button>
       </div>
     </div>
     <img src="${esc(charSrc())}" alt="캐릭터" class="bounce">
@@ -290,13 +322,13 @@ function pickTop(items, n) {
 
 // ---------- 오늘의 뉴스 ----------
 async function newsView() {
-  const data = await loadNews();
+  const data = scopeNews(await loadNews());
   view.innerHTML = `
   <h1>📰 오늘의 뉴스</h1>
-  <p class="sub">최근 24시간 뉴스를 같은 사건끼리 묶고, MOA 적합도(최근성·화제성·SNS 확산·2040 여성 관심·생활 연관·설명 용이·카드뉴스 적합)로 정렬했어요.</p>
+  <p class="sub">${BR().happy ? `육아·아기용품·생활용품·생활템 뉴스만 모아, ${esc(BR().fit)}(최근성·화제성·부모 관심·생활 연관·설명 용이·카드뉴스 적합)로 정렬했어요.` : '최근 24시간 뉴스를 같은 사건끼리 묶고, MOA 적합도(최근성·화제성·SNS 확산·2040 여성 관심·생활 연관·설명 용이·카드뉴스 적합)로 정렬했어요.'}</p>
   <div class="row" style="margin-bottom:16px">
-    <select id="f-cat"><option value="">전체 카테고리</option>${TOPICS().map(([k, v]) => `<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
-    <select id="f-sort"><option value="moa">MOA 적합도순</option><option value="new">최신순</option><option value="buzz">화제성순</option></select>
+    <select id="f-cat"><option value="">전체 카테고리</option>${TOPICS().map(([k]) => `<option value="${k}">${esc(catLabel(k))}</option>`).join('')}</select>
+    <select id="f-sort"><option value="moa">${esc(BR().fit)}순</option><option value="new">최신순</option><option value="buzz">화제성순</option></select>
     <input type="search" id="f-q" placeholder="뉴스 검색" style="max-width:260px">
     <span class="spacer"></span>
     <a class="btn" href="#/create" id="manual">✏️ 직접 입력해서 만들기</a>
@@ -320,21 +352,21 @@ async function newsView() {
 
 // ---------- 주제별 콘텐츠 ----------
 async function topicsView(cat) {
-  const data = await loadNews();
-  const key = CATEGORIES[cat] && !CATEGORIES[cat].hidden ? cat : 'NEWS';
+  const data = scopeNews(await loadNews());
+  const key = BR().topics.includes(cat) ? cat : BR().topics[0];
   const c = CATEGORIES[key];
   const items = data.items.filter((n) => n.category === key).sort((a, b) => b.moaScore - a.moaScore);
   const mine = mineOnly(listContents()).filter((x) => x.category === key);
   view.innerHTML = `
   <h1>🧺 주제별 콘텐츠</h1>
-  <p class="sub">기획안의 MOA 카테고리별로 오늘의 뉴스를 모아 보고, 주제에 맞는 톤으로 카드뉴스를 만들어요.</p>
+  <p class="sub">${esc(BR().name)} 계정의 주제별로 오늘의 뉴스를 모아 보고, 주제에 맞는 톤으로 카드뉴스를 만들어요.</p>
   <div class="tabs">${TOPICS().map(([k, v]) => `<a href="#/topics/${k}" class="${k === key ? 'on' : ''}" style="--c:${v.color}">${v.emoji} ${esc(v.name)} <span>${data.items.filter((n) => n.category === k).length}</span></a>`).join('')}</div>
   <section class="panel topic-head" style="--c:${c.color}">
     <div class="row"><span class="topic-emoji big">${c.emoji}</span><div><h2 style="margin:0">${esc(c.label)}</h2><div class="muted">${esc(c.desc)}</div></div></div>
-    <p class="small" style="margin:12px 0 6px"><b>모아 작성 원칙</b> · ${esc(c.guide)}</p>
-    <p class="small muted" style="margin:0">기본 해시태그: ${['모아뉴스', ...c.tags].map((t) => `#${esc(t)}`).join(' ')}</p>
+    <p class="small" style="margin:12px 0 6px"><b>${esc(BR().name)} 작성 원칙</b> · ${esc(c.guide)}</p>
+    <p class="small muted" style="margin:0">기본 해시태그: ${[BR().baseTag, ...c.tags].map((t) => `#${esc(t)}`).join(' ')}</p>
     <div class="row" style="margin-top:14px">
-      <button class="btn primary" id="t-one" ${items.length ? '' : 'disabled'}>🐑 이 주제 1위 뉴스로 만들기</button>
+      <button class="btn primary" id="t-one" ${items.length ? '' : 'disabled'}>${BR().emoji} 이 주제 1위 뉴스로 만들기</button>
       <button class="btn" id="t-three" ${items.length ? '' : 'disabled'}>📦 이 주제 TOP 3 한 번에 만들기</button>
       <a class="btn" href="#/create" id="t-manual">✏️ 이 주제로 직접 입력</a>
     </div>
@@ -354,23 +386,28 @@ async function topicsView(cat) {
 
 // ---------- 트렌드 ----------
 async function trendsView() {
-  const data = await loadNews();
+  const data = scopeNews(await loadNews());
   const trends = data.trends || [];
   view.innerHTML = `
   <h1>🔥 트렌드</h1>
-  <p class="sub">Google 트렌드 한국 실시간 인기 검색어와 관련 기사예요.</p>
+  ${BR().happy ? `<p class="sub">요즘 부모들이 많이 보는 육아·아기용품·생활템 화제(여러 언론이 함께 다룬 순)와, 실시간 검색어 중 육아·생활 관련 키워드예요.</p>
+  <h2>👶 육아·생활템 화제</h2>
+  ${data.items.length ? `<div class="grid">${[...data.items].sort((a, b) => b.buzzScore - a.buzzScore || b.moaScore - a.moaScore).slice(0, 12).map(newsCard).join('')}</div>` : emptyNews(data)}
+  <h2>🔎 실시간 검색어 중 육아·생활 관련</h2>
+  ${trends.length ? '' : '<p class="small muted">지금은 육아·생활 관련 실시간 검색어가 없어요.</p>'}` : '<p class="sub">Google 트렌드 한국 실시간 인기 검색어와 관련 기사예요.</p>'}
   ${trends.length ? `<div class="grid">${trends.map((t, i) => `
     <article class="panel news">
       <div class="row"><span class="chip pink">#${i + 1}</span><span class="spacer"></span><span class="small muted">${esc(t.traffic || '')} 검색</span></div>
       <h3>${esc(t.keyword)}</h3>
       ${(t.news || []).map((n) => `<a class="small" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">· ${esc(n.title)} <span class="muted">${esc(n.name)}</span></a>`).join('')}
       <div class="foot"><button class="btn primary sm" data-trend="${i}">이 키워드로 카드뉴스 만들기</button></div>
-    </article>`).join('')}</div>` : emptyNews(data)}`;
+    </article>`).join('')}</div>` : BR().happy ? '' : emptyNews(data)}`;
+  bindMake(view);
   $$('[data-trend]').forEach((b) => b.addEventListener('click', () => {
     const t = trends[+b.dataset.trend];
     const first = t.news?.[0];
     setDraftNews({
-      id: `t${Date.now()}`, category: 'TREND', title: first ? `${t.keyword}: ${first.title}` : t.keyword,
+      id: `t${Date.now()}`, category: BR().happy ? 'ITEM' : 'TREND', title: first ? `${t.keyword}: ${first.title}` : t.keyword,
       summary: `실시간 인기 검색어 '${t.keyword}' (${t.traffic || ''} 검색)`, url: first?.url || '', source: first?.name || 'Google 트렌드',
       publishedAt: t.publishedAt, sources: (t.news || []).map((n) => ({ name: n.name, title: n.title, url: n.url })),
     });
@@ -382,10 +419,10 @@ async function trendsView() {
 async function createView() {
   const s = getSettings();
   const keys = getKeys();
-  const n = getDraftNews() || { category: 'NEWS', title: '', summary: '', url: '', source: '', sources: [] };
+  const n = getDraftNews() || { category: BR().topics[0] || 'NEWS', title: '', summary: '', url: '', source: '', sources: [] };
   view.innerHTML = `
   <h1>✏️ 콘텐츠 만들기</h1>
-  <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 7장 원고·모아 포즈·캡션·해시태그가 한 번에 만들어져요.</p>
+  <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 7장 원고·${esc(BR().name)} 포즈·캡션·해시태그가 한 번에 만들어져요.${BR().happy ? ' 해피해피 계정은 육아·아기·생활용품·생활템 관점으로 원고를 써요.' : ''}</p>
   <section class="panel url-box">
     <h3>🔗 뉴스 기사 URL로 바로 만들기</h3>
     <p class="small muted" style="margin:0 0 10px">기사 주소를 붙여넣으면 AI가 기사를 직접 읽고 7장 카드뉴스를 만들어요. (Claude·Gemini·GPT 키 필요, 주제는 AI가 판단)</p>
@@ -402,12 +439,12 @@ async function createView() {
     </div>
     <div class="shots" id="u-shots"></div>
   </section>
-  <div class="row" style="margin:14px 0"><span class="small muted">또는 아래에 뉴스 정보를 직접 채워서 만들기</span><span class="spacer"></span><button class="btn sm pink" id="c-intro">🐑 첫 게시물 (모아 소개) 만들기</button></div>
+  <div class="row" style="margin:14px 0"><span class="small muted">또는 아래에 뉴스 정보를 직접 채워서 만들기</span><span class="spacer"></span><button class="btn sm pink" id="c-intro">${BR().emoji} 첫 게시물 (${esc(BR().name)} 소개) 만들기</button></div>
   <div class="editor" style="grid-template-columns:minmax(0,1fr) 360px">
     <section class="panel">
       <h3>뉴스 정보</h3>
       <div class="two">
-        <div class="field"><label for="n-cat">카테고리</label><select id="n-cat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === n.category ? 'selected' : ''}>${v.emoji} ${v.label}</option>`).join('')}</select></div>
+        <div class="field"><label for="n-cat">카테고리</label><select id="n-cat">${catOptions(n.category)}</select></div>
         <div class="field"><label for="n-src">대표 출처</label><input type="text" id="n-src" value="${esc(n.source)}" placeholder="예: 연합뉴스"></div>
       </div>
       <div class="field"><label for="n-title">제목</label><input type="text" id="n-title" value="${esc(n.title)}" placeholder="뉴스 제목"></div>
@@ -521,7 +558,7 @@ async function generateContent(news, provider, opts = {}) {
     body = templateContent(news, { handle: s.handle });
   } else {
     const text = await callModel(provider, {
-      apiKey: getKeys()[provider], model: s.models[provider], system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand }),
+      apiKey: getKeys()[provider], model: s.models[provider], system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand, focus: s.focus }),
       prompt: buildContentPrompt(news, { ...opts, handle: s.handle }), images: opts.images, schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, fetchUrl: !!opts.fromUrl, browser: true,
     });
     body = normalizeContent(extractJson(text), news);
@@ -529,8 +566,12 @@ async function generateContent(news, provider, opts = {}) {
   body = renameCharacter(body, s.charName, charOf(getActiveProfile()).emoji);
   // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다. URL로 만들 때는 AI 판단을 쓴다
   if (CATEGORIES[news.category]) body.category = news.category;
+  // 계정 주제 밖이면 계정 첫 주제로 (해피해피는 육아·아기·생활용품·생활템만)
+  const topics = (s.topics || TOPIC_KEYS());
+  if (!topics.includes(body.category)) body.category = topics[0];
   // 예전 계정 표기(@moa)가 남아 있으면 현재 계정으로 바꾼다
   if (s.handle) body.caption = (body.caption || '').replace(/@moa(?![\w.])/g, s.handle);
+  if (s.focus) body.caption = (body.caption || '').replace('매일 쉬운 뉴스 받기', '육아·살림 꿀정보 받기');
   if (opts.fromUrl || opts.images?.length) {
     news.title = news.title || body.title;
     news.category = body.category;
@@ -551,7 +592,7 @@ async function generateContent(news, provider, opts = {}) {
 
 async function runGenerate(newsList, provider, opts, { status = 'draft', zip = false } = {}) {
   const label = provider === 'template' ? '템플릿' : PROVIDERS[provider].label;
-  const box = modal(`<div data-busy><h2 style="margin-top:0">🐑 모아가 만드는 중…</h2>
+  const box = modal(`<div data-busy><h2 style="margin-top:0">${BR().emoji} ${esc(BR().name)}가 만드는 중…</h2>
     <p class="small muted">${esc(label)}${opts.webSearch ? ' · 웹 검색 사용' : ''} — 한 건에 보통 20초~1분 걸려요.</p>
     <ul class="progress" id="prog">${newsList.map((n, i) => `<li id="p${i}">${esc((n.title || n.url || '').slice(0, 50))}</li>`).join('')}</ul>
     <div id="pfoot"></div></div>`);
@@ -584,7 +625,7 @@ async function runGenerate(newsList, provider, opts, { status = 'draft', zip = f
   $$('[data-close]', box).forEach((a) => a.addEventListener('click', closeModal));
   $('#pzip', box)?.addEventListener('click', async (e) => {
     e.target.disabled = true; e.target.textContent = 'PNG 만드는 중…';
-    try { await downloadZip(out, `MOA_${today()}.zip`); } catch (err) { toast(err.message, true); }
+    try { await downloadZip(out, `${safeName(getSettings().brand || 'MOA')}_${today()}.zip`); } catch (err) { toast(err.message, true); }
     e.target.disabled = false; e.target.textContent = '📦 전체 PNG ZIP 다운로드';
   });
   return out;
@@ -615,7 +656,7 @@ function createIntro() {
   const s = getSettings();
   const c = {
     id: newId(), createdAt: new Date().toISOString(), status: 'draft', model: 'template', modelName: '첫 게시물 프리셋',
-    format: s.format || DEFAULT_FORMAT, news: { title: `${s.charName} 소개` }, ...renameCharacter(introContent(), s.charName, charOf(getActiveProfile()).emoji),
+    format: s.format || DEFAULT_FORMAT, news: { title: `${s.charName} 소개` }, ...(getActiveProfile().char === 'happy' ? introContentHappy() : renameCharacter(introContent(), s.charName, charOf(getActiveProfile()).emoji)),
   };
   if (s.handle) c.caption = (c.caption || '').replace(/@moa(\.story)?(?![\w.])/g, s.handle);
   saveContent(c);
@@ -625,7 +666,7 @@ function createIntro() {
 
 // ---------- 원클릭 ----------
 async function oneClick() {
-  const data = await loadNews();
+  const data = scopeNews(await loadNews());
   const top = pickTop(data.items, 3);
   if (!top.length) { toast('수집된 뉴스가 없어요. 직접 입력해서 만들어 주세요.', true); location.hash = '#/create'; return; }
   const s = getSettings();
@@ -711,7 +752,7 @@ async function editorView(id) {
     <input type="text" id="e-title" value="${esc(c.title)}" style="max-width:520px;font-weight:800;font-size:18px">
     <select id="e-status">${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}" ${k === c.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <label class="small" for="e-cat" style="font-weight:700;color:var(--brown)">주제</label>
-    <select id="e-cat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${v.emoji} ${v.label}</option>`).join('')}</select>
+    <select id="e-cat">${catOptions(c.category)}</select>
     <label class="small" for="e-theme" style="font-weight:700;color:var(--brown)">디자인</label>
     <select id="e-theme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === deckTheme(c, env.settings) ? 'selected' : ''}>${v.split(' (')[0]}</option>`).join('')}</select>
     <label class="small" for="e-format" style="font-weight:700;color:var(--brown)">크기</label>
@@ -767,7 +808,7 @@ async function editorView(id) {
       <h3>${String(cur + 1).padStart(2, '0')} · ${esc(k.type)}</h3>
       <div class="two">
         <div class="field"><label>레이아웃</label><select data-k="layout">${LAYOUTS.map((l) => `<option value="${l}" ${l === k.layout ? 'selected' : ''}>${LAYOUT_LABEL[l]}${l === 'auto' ? ` (${LAYOUT_LABEL[lay]})` : ''}</option>`).join('')}</select></div>
-        <div class="field"><label>모아 포즈</label><select data-k="pose">${Object.entries(POSES).map(([p, l]) => `<option value="${p}" ${p === k.pose ? 'selected' : ''}>${l}${p === DEFAULT_POSE[k.type] ? ' (추천)' : ''}</option>`).join('')}</select></div>
+        <div class="field"><label>${esc(BR().name)} 포즈</label><select data-k="pose">${Object.entries(POSES).map(([p, l]) => `<option value="${p}" ${p === k.pose ? 'selected' : ''}>${l}${p === DEFAULT_POSE[k.type] ? ' (추천)' : ''}</option>`).join('')}</select></div>
       </div>
       ${k.type === 'LIFE/CHECK' || k.type === 'SO WHAT' ? `<div class="field"><label>정보 유형 (리스트는 "라벨: 내용" 형식이면 라벨이 강조돼요)</label><select data-k="kind">${Object.entries(PRACTICAL_KINDS).map(([kk, v]) => `<option value="${kk}" ${kk === (k.kind || 'none') ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>제목</label><textarea data-k="title" rows="2">${esc(k.title)}</textarea></div>
@@ -785,13 +826,13 @@ async function editorView(id) {
           <div class="field"><label>왼쪽 내용</label><textarea data-c="left" rows="2">${esc(k.compare?.left)}</textarea></div>
           <div class="field"><label>오른쪽 내용</label><textarea data-c="right" rows="2">${esc(k.compare?.right)}</textarea></div>
         </div></details>
-      <div class="field"><label>모아의 한마디 (말풍선)</label><input type="text" data-k="moaSays" value="${esc(k.moaSays)}" maxlength="24"></div>
+      <div class="field"><label>${esc(BR().name)}의 한마디 (말풍선)</label><input type="text" data-k="moaSays" value="${esc(k.moaSays)}" maxlength="24"></div>
       <h3 style="margin-top:16px">디자인</h3>
       <div class="two">
-        <div class="field"><label>모아 위치</label><select data-s="moaPos">${Object.entries(POS_LABEL).map(([p, l]) => `<option value="${p}" ${p === (st.moaPos || '') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="field"><label>${esc(BR().name)} 위치</label><select data-s="moaPos">${Object.entries(POS_LABEL).map(([p, l]) => `<option value="${p}" ${p === (st.moaPos || '') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label>좌우 반전</label><select data-s="moaFlip"><option value="">아니요</option><option value="1" ${st.moaFlip ? 'selected' : ''}>네</option></select></div>
       </div>
-      <div class="field"><label>모아 크기 <span class="muted" id="v-ms">${Math.round((st.moaScale || 1) * 100)}%</span></label><input type="range" min="0.5" max="1.5" step="0.05" data-s="moaScale" value="${st.moaScale || 1}"></div>
+      <div class="field"><label>${esc(BR().name)} 크기 <span class="muted" id="v-ms">${Math.round((st.moaScale || 1) * 100)}%</span></label><input type="range" min="0.5" max="1.5" step="0.05" data-s="moaScale" value="${st.moaScale || 1}"></div>
       <div class="field"><label>글자 크기 <span class="muted" id="v-fs">${Math.round((st.fontScale || 1) * 100)}%</span></label><input type="range" min="0.7" max="1.3" step="0.05" data-s="fontScale" value="${st.fontScale || 1}"></div>
       <div class="row">
         <label class="small">배경 <input type="color" data-s="bg" value="${st.bg || env.settings.theme.bg}"></label>
@@ -923,7 +964,7 @@ async function contentsView() {
   <p class="sub">이 브라우저에 저장된 <b>${esc(getActiveProfile().name)}</b> 계정의 카드뉴스예요. 다른 기기로 옮기려면 백업 파일을 내보내 가져오세요.</p>
   <div class="row" style="margin-bottom:14px">
     <input type="search" id="q" placeholder="제목 검색" style="max-width:220px">
-    <select id="fc"><option value="">전체 카테고리</option>${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
+    <select id="fc"><option value="">전체 카테고리</option>${BR().topics.map((k) => `<option value="${k}">${esc(catLabel(k))}</option>`).join('')}</select>
     <select id="fm"><option value="">전체 모델</option>${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}<option value="template">템플릿</option></select>
     <select id="fs"><option value="">전체 상태</option>${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
     <input type="date" id="fd" style="max-width:170px" title="생성일">
@@ -948,7 +989,7 @@ async function contentsView() {
         <td class="small">${esc(new Date(c.createdAt).toLocaleString('ko-KR'))}</td>
         <td><div class="row"><a class="btn sm" href="#/editor/${c.id}">열기</a><button class="btn sm" data-zip="${c.id}">ZIP</button><button class="btn sm danger" data-del="${c.id}">삭제</button></div></td>
       </tr>`).join('')}</table></div>`
-      : '<div class="panel empty"><img src="${esc(charSrc())}" alt=""><p>아직 만든 콘텐츠가 없어요.</p><a class="btn primary" href="#/news">뉴스 고르러 가기</a></div>';
+      : `<div class="panel empty"><img src="${esc(charSrc())}" alt=""><p>아직 만든 콘텐츠가 없어요.</p><a class="btn primary" href="#/news">뉴스 고르러 가기</a></div>`;
     $$('[data-cc]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.cc); c.category = s.value; saveContent(c); toast(`주제: ${CATEGORIES[c.category].label}`); }));
     $$('[data-st]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.st); c.status = s.value; saveContent(c); toast(`상태: ${STATUSES[c.status]}`); }));
     $$('[data-del]').forEach((b) => b.addEventListener('click', () => { if (confirm('이 콘텐츠를 삭제할까요?')) { deleteContent(b.dataset.del); draw(); } }));
@@ -1036,8 +1077,13 @@ async function settingsView(arg) {
     <div class="field"><label for="font">폰트</label><select id="font"><option value="Pretendard" ${s.font === 'Pretendard' ? 'selected' : ''}>Pretendard</option><option value="SUIT" ${s.font === 'SUIT' ? 'selected' : ''}>SUIT</option><option value="Gmarket" ${s.font === 'Gmarket' ? 'selected' : ''}>G마켓 산스 (매거진 느낌)</option></select></div>
     <div class="two">
       <div class="field"><label for="toonbg">인스타툰 배경</label><select id="toonbg"><option value="white" ${(s.toonBg || 'white') === 'white' ? 'selected' : ''}>흰색</option><option value="pastel" ${s.toonBg === 'pastel' ? 'selected' : ''}>파스텔 (장마다 다른 색)</option></select></div>
-      <div class="field"><label for="toonfont">인스타툰 제목 폰트</label><select id="toonfont">${Object.keys(TOON_FONTS).map((k) => `<option value="${k}" ${k === (s.toonFont || 'Jua') ? 'selected' : ''}>${{ Jua: '주아 (둥근 손글씨)', DoHyeon: '도현 (좁고 굵게)', BlackHanSans: '검은고딕 (아주 굵게)' }[k]}</option>`).join('')}</select></div>
+      <div class="field"><label for="toonfont">카드뉴스 제목 글씨체</label><select id="toonfont">${Object.keys(TOON_FONTS).map((k) => `<option value="${k}" ${k === (s.toonFont || 'Pretendard') ? 'selected' : ''}>${esc(TOON_FONT_LABELS[k])}</option>`).join('')}</select></div>
     </div>
+    <div class="two">
+      <div class="field"><label for="toonbubble">말풍선·본문 글씨체</label><select id="toonbubble">${Object.keys(BUBBLE_FONTS).map((k) => `<option value="${k}" ${k === (s.toonBubble || 'Gowun') ? 'selected' : ''}>${esc(BUBBLE_FONT_LABELS[k])}</option>`).join('')}</select></div>
+      <div class="field"><label for="shortsfont">숏폼 기본 글씨체 (새 숏폼에 적용)</label><select id="shortsfont">${Object.entries(SHORTS_FONTS).map(([k, v]) => `<option value="${k}" ${k === (s.shortsFont || 'pblack') ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></div>
+    </div>
+    <div class="font-preview" id="font-preview"></div>
     <label class="small">인스타툰 강조색 <input type="color" id="toonaccent" value="${s.toonAccent || '#F0506E'}"></label>
     <div class="field"><label for="decktheme">카드뉴스 디자인 (7장 전체)</label><select id="decktheme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === (s.deckTheme || 'toon') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 매거진 디자인일 때 첫 장 실사 사진 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
@@ -1073,6 +1119,8 @@ async function settingsView(arg) {
     ns.deckTheme = $('#decktheme').value;
     ns.toonBg = $('#toonbg').value;
     ns.toonFont = $('#toonfont').value;
+    ns.toonBubble = $('#toonbubble').value;
+    ns.shortsFont = $('#shortsfont').value;
     ns.toonAccent = $('#toonaccent').value;
     ns.imageProvider = $('#imgprov').value;
     ns.name = $('#pf-name').value.trim() || prof.name;
@@ -1091,6 +1139,14 @@ async function settingsView(arg) {
   };
   $('#save').addEventListener('click', async () => { const { ns, nk } = collect(); saveSettings(ns); saveKeys(nk); await renderEnv(true); drawProfileSwitch(); toast(`${ns.name} 계정 설정을 저장했어요.`); settingsView(); });
   $$('[data-prof]').forEach((b) => b.addEventListener('click', () => { setActiveProfile(b.dataset.prof); ENV = null; drawProfileSwitch(); settingsView(); }));
+  const fontPreview = () => {
+    const t = TOON_FONTS[$('#toonfont').value];
+    const b = BUBBLE_FONTS[$('#toonbubble').value];
+    const sf = SHORTS_FONTS[$('#shortsfont').value];
+    $('#font-preview').innerHTML = `<div style="font-family:${esc(t)};font-weight:700;font-size:30px">카드 제목 미리보기 1,290원</div><div style="font-family:${esc(b)};font-size:20px">말풍선은 이렇게 보여요. 같이 알아볼까?</div><div class="fp-shorts" style="font-family:${esc(sf.css)};font-weight:${sf.weight}">숏폼 자막 미리보기</div>`;
+  };
+  ['#toonfont', '#toonbubble', '#shortsfont'].forEach((sel) => $(sel).addEventListener('change', fontPreview));
+  fontPreview();
   $('#pf-char').addEventListener('change', (e) => {
     $('#pf-custom').style.display = e.target.value === 'custom' ? '' : 'none';
     const ch = CHARACTERS[e.target.value];
