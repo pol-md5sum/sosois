@@ -72,28 +72,34 @@ export const CATEGORIES = {
 // 해피해피(육아·생활) 계정 전용 주제 — 카드 상단에 브랜드 접두어 없이 표시
 Object.assign(CATEGORIES, {
   PARENTING: {
-    label: 'PARENTING', emoji: '👶', name: '육아', color: '#F2A65A', scope: 'happy',
+    label: 'PARENTING', emoji: '👶', name: '육아', color: '#F2A65A', scope: 'happy', recipe: 'guide',
     desc: '육아 정보·지원 정책·아이 키우기 팁',
     guide: '육아. 부모급여·아동수당·어린이집 등 정책은 대상·금액·신청 기간·신청처를 정확히. 아이 건강·발달 정보는 단정하지 말고 "소아청소년과 상담"을 권한다. 다정하고 공감하는 말투.',
     tags: ['육아', '육아정보', '육아맘', '육아대디', '육아꿀팁'],
   },
   BABY: {
-    label: 'BABY', emoji: '🍼', name: '아기·유아용품', color: '#E99AA8', scope: 'happy',
+    label: 'BABY', emoji: '🍼', name: '아기·유아용품', color: '#E99AA8', scope: 'happy', recipe: 'items',
     desc: '아기용품·출산 준비·유아용품 소식',
     guide: '아기·유아용품. 사용 월령·안전 인증·가격·구매처는 확인된 사실만. 리콜·안전 이슈는 제품명·대상·조치 방법을 정확히. 특정 브랜드 광고처럼 쓰지 말 것.',
     tags: ['아기용품', '출산준비', '신생아', '육아템', '아기'],
   },
   LIVING: {
-    label: 'LIVING', emoji: '🧺', name: '생활용품', color: '#7FB7A4', scope: 'happy',
+    label: 'LIVING', emoji: '🧺', name: '생활용품', color: '#7FB7A4', scope: 'happy', recipe: 'items',
     desc: '살림·주방·청소·수납 생활용품 정보',
     guide: '생활용품. 사용법·가격·주의사항(세제 혼합 금지 등 안전)을 구체적으로. 효과를 과장하지 말 것.',
     tags: ['생활용품', '살림', '살림템', '주방용품', '정리수납'],
   },
   ITEM: {
-    label: 'ITEM', emoji: '✨', name: '생활템', color: '#E8B64C', scope: 'happy',
+    label: 'ITEM', emoji: '✨', name: '생활템', color: '#E8B64C', scope: 'happy', recipe: 'items',
     desc: '요즘 뜨는 생활템·육아템·꿀템',
     guide: '생활템. "왜 요즘 많이 찾는지"와 실제 쓰임새 중심으로. 가격은 변동될 수 있음을 알리고, 협찬·광고가 아님을 명확히(근거 없는 최고·1위 표현 금지).',
     tags: ['생활템', '꿀템', '추천템', '육아템', '살림템'],
+  },
+  OUTING: {
+    label: 'OUTING', emoji: '🎡', name: '아기랑 나들이', color: '#6FA8DC', scope: 'happy', recipe: 'place',
+    desc: '아기랑 가볼 만한 곳·키즈카페·테마파크·가족 여행',
+    guide: '나들이·여행. 장소 이름·위치·운영 시간·요금·추천 나이는 기사에서 확인된 것만. 유모차·수유실·주차 같은 아기 동반 정보가 있으면 꼭 넣는다. 운영 정보는 바뀔 수 있으니 방문 전 확인을 권한다.',
+    tags: ['아기랑가볼만한곳', '아이랑가볼만한곳', '키즈카페', '아기랑여행', '주말나들이'],
   },
   HAPPY: {
     label: 'HELLO', emoji: '🧸', name: '해피해피 소개', color: '#F5C26B', hidden: true, scope: 'happy',
@@ -102,11 +108,24 @@ Object.assign(CATEGORIES, {
     tags: ['해피해피', '첫게시물', '육아', '육아템', '생활템'],
   },
 });
-export const HAPPY_TOPICS = ['PARENTING', 'BABY', 'LIVING', 'ITEM'];
+export const HAPPY_TOPICS = ['PARENTING', 'BABY', 'LIVING', 'ITEM', 'OUTING'];
 // 모아 계정 기본 주제 (숨김·다른 계정 전용 주제 제외)
 export const TOPIC_KEYS = () => Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].hidden && !CATEGORIES[k].scope);
 
 export const CARD_TYPES = ['HOOK', 'WHAT', 'WHY', 'SO WHAT', "MOA'S PICK", 'LIFE/CHECK', 'CTA'];
+// 형식별 카드에서 쓰는 추가 유형: 추천템(ITEM)·장소(PLACE)·단계(STEP)
+export const EXTRA_TYPES = ['ITEM', 'PLACE', 'STEP'];
+export const ALL_TYPES = [...CARD_TYPES, ...EXTRA_TYPES];
+export const TYPE_LABEL = { ITEM: 'PICK', PLACE: 'SPOT', STEP: 'STEP' };
+// 카드뉴스 형식 — 뉴스 요약(7장) 외에 육아·생활 계정용 형식
+export const RECIPES = {
+  news: { label: '📰 뉴스 요약 (7장)', plan: '' },
+  items: { label: '🛍️ 추천템 (육아템·생활템)', plan: `카드 7~8장: 1 HOOK(표지) → 2 WHAT(왜 필요한지·누구에게) → 3~6 ITEM 4장(layout "product", 한 장에 제품·아이템 하나) → LIFE/CHECK(고를 때 체크할 점, kind "checklist") → CTA.
+ITEM 카드: title=아이템 이름(짧게), body=한 줄 추천 포인트, highlight=핵심 장점 단어, specs=[{k:"가격대",v:"…"},{k:"추천 대상",v:"…"},{k:"포인트",v:"…"}] (2~4개), emoji=아이템을 나타내는 이모지 1개.` },
+  place: { label: '🎡 아기랑 가볼 곳', plan: `카드 7~8장: 1 HOOK(표지) → 2~5 PLACE 4장(layout "place", 한 장에 장소 하나) → LIFE/CHECK(준비물·주의할 점, kind "checklist") → CTA. 장소가 적으면 PLACE를 2~3장으로 줄인다.
+PLACE 카드: title=장소 이름, body=한 줄 꿀팁, highlight=추천 이유 단어, specs=[{k:"위치",v:"…"},{k:"운영",v:"…"},{k:"요금",v:"…"},{k:"추천 나이",v:"…"}] (확인된 것만 2~4개), emoji=장소 이모지 1개.` },
+  guide: { label: '👶 육아 정보 (단계별)', plan: `카드 6~7장: 1 HOOK(표지) → 2 WHAT(무엇·누구 대상) → 3~5 STEP 3장(layout "list" 또는 "text", 순서대로 따라 하는 방법·신청 절차) → LIFE/CHECK(체크리스트) → CTA.` },
+};
 
 // 카드 유형별 기본 포즈 (기획안 16항)
 export const DEFAULT_POSE = {
@@ -117,6 +136,9 @@ export const DEFAULT_POSE = {
   "MOA'S PICK": 'check',
   'LIFE/CHECK': 'check',
   CTA: 'wave',
+  ITEM: 'ok',
+  PLACE: 'excited',
+  STEP: 'explain',
 };
 
 export const POSES = {
@@ -138,15 +160,20 @@ export const PRACTICAL_KINDS = {
   related: { label: '관련 보도', title: '다른 데선 이렇게 봤어', tag: 'MORE' },
 };
 
-export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta'];
+export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta', 'product', 'place'];
 
 const str = { type: 'string' };
 const CARD_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'title', 'body', 'highlight', 'items', 'number', 'numberLabel', 'compare', 'layout', 'pose', 'moaSays', 'kind'],
+  required: ['type', 'title', 'body', 'highlight', 'items', 'number', 'numberLabel', 'compare', 'layout', 'pose', 'moaSays', 'kind', 'specs', 'emoji'],
   properties: {
-    type: { type: 'string', enum: CARD_TYPES },
+    type: { type: 'string', enum: ALL_TYPES },
+    specs: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: false, required: ['k', 'v'], properties: { k: str, v: str } },
+    },
+    emoji: str,
     title: str,
     body: str,
     highlight: str,
@@ -249,7 +276,13 @@ export const SYSTEM_PROMPT = `너는 인스타그램 카드뉴스 브랜드 "MOA
 
 export function buildContentPrompt(news, opts = {}) {
   const lines = [];
-  lines.push('아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
+  const rc = RECIPES[news.recipe] && news.recipe !== 'news' ? RECIPES[news.recipe] : null;
+  lines.push(rc ? `아래 뉴스·메모로 "${rc.label}" 형식의 카드뉴스를 만들어 줘.` : '아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
+  if (rc) {
+    lines.push(`[형식] ${rc.plan}`);
+    lines.push('이 형식에서는 위 7장 구조 대신 이 순서를 따른다. 각 카드의 type을 맞게 쓰고, 안 쓰는 필드는 빈 값으로 둔다.');
+    lines.push('기사·메모에 없는 제품명·가격·장소·운영 시간은 지어내지 않는다. 모르면 그 specs 줄을 빼거나 v에 "확인 필요"라고 쓰고 factNotes에 적는다.');
+  }
   lines.push('');
   const cat = CATEGORIES[news.category] || CATEGORIES.NEWS;
   if ((!opts.fromUrl && !opts.images?.length) || news.category) lines.push(`카테고리: ${news.category || 'NEWS'} — ${cat.emoji} ${cat.label} (${cat.desc}). 사용자가 정한 주제이므로 category 필드는 ${news.category || 'NEWS'} 그대로 출력한다.`);
@@ -447,8 +480,10 @@ const clampText = (s, n) => (typeof s === 'string' ? s.trim().slice(0, n) : '');
 
 export function normalizeContent(raw, news = {}) {
   const c = raw && typeof raw === 'object' ? raw : {};
-  const cards = Array.isArray(c.cards) ? c.cards.slice(0, 7) : [];
-  while (cards.length < 7) cards.push({});
+  // 뉴스 요약은 7장 고정, 다른 형식(추천템·나들이·육아 정보)은 4~10장
+  const recipe = RECIPES[news.recipe] && news.recipe !== 'news' ? news.recipe : '';
+  const cards = Array.isArray(c.cards) ? c.cards.slice(0, recipe ? 10 : 7) : [];
+  while (cards.length < (recipe ? 4 : 7)) cards.push({});
   const out = {
     title: clampText(c.title, 80) || news.title || '제목 없음',
     category: CATEGORIES[c.category] ? c.category : (CATEGORIES[news.category] ? news.category : 'NEWS'),
@@ -463,7 +498,8 @@ export function normalizeContent(raw, news = {}) {
     factNotes: (Array.isArray(c.factNotes) ? c.factNotes : []).map((s) => clampText(s, 200)).filter(Boolean),
   };
   out.cards = cards.map((card, i) => {
-    const type = CARD_TYPES[i];
+    let type = CARD_TYPES[i];
+    if (recipe) type = i === 0 ? 'HOOK' : i === cards.length - 1 ? 'CTA' : (ALL_TYPES.includes(card.type) && !['HOOK', 'CTA'].includes(card.type) ? card.type : 'WHAT');
     const cmp = card.compare || {};
     return {
       type,
@@ -477,13 +513,16 @@ export function normalizeContent(raw, news = {}) {
         leftTitle: clampText(cmp.leftTitle, 16), left: clampText(cmp.left, 80),
         rightTitle: clampText(cmp.rightTitle, 16), right: clampText(cmp.right, 80),
       },
-      layout: LAYOUTS.includes(card.layout) ? card.layout : 'auto',
+      layout: LAYOUTS.includes(card.layout) ? card.layout : (type === 'ITEM' ? 'product' : type === 'PLACE' ? 'place' : 'auto'),
       pose: POSES[card.pose] ? card.pose : DEFAULT_POSE[type],
       moaSays: clampText(card.moaSays, 24),
       kind: PRACTICAL_KINDS[card.kind] ? card.kind : (type === 'LIFE/CHECK' ? 'checklist' : 'none'),
+      specs: (Array.isArray(card.specs) ? card.specs : []).map((x) => ({ k: clampText(x?.k, 10), v: clampText(x?.v, 40) })).filter((x) => x.k && x.v).slice(0, 5),
+      emoji: clampText(card.emoji, 4),
       style: {},
     };
   });
+  if (recipe) out.recipe = recipe;
   if (!out.sources.length && news) {
     const src = news.sources?.length ? news.sources : (news.url ? [{ name: news.source, url: news.url }] : []);
     out.sources = src.slice(0, 3).map((s) => ({ name: s.name || '', url: s.url || '' }));
@@ -658,6 +697,31 @@ export async function generateImage(provider, { apiKey, model, prompt, aspect = 
   throw new Error('배경 이미지는 GPT 또는 Gemini 키로 만들 수 있어요. (Claude는 이미지 생성을 지원하지 않음)');
 }
 
+// ---------- 원문 기사 링크 ----------
+// 구글 뉴스 중계 주소(news.google.com)는 길고 언론사 주소가 아니라 캡션에는 넣지 않는다
+export const directUrl = (u) => {
+  try {
+    const x = new URL(String(u || ''));
+    return /^https?:$/.test(x.protocol) && !/(^|\.)news\.google\.com$/.test(x.hostname) && String(u).length <= 140 ? String(u) : '';
+  } catch { return ''; }
+};
+export function articleInfo(news = {}, sources = []) {
+  const title = String(news.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
+  const outlet = news.source || sources.find((x) => x?.name)?.name || '';
+  const d = news.publishedAt ? new Date(news.publishedAt) : null;
+  const date = d && !Number.isNaN(d.getTime()) ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}` : '';
+  const link = directUrl(news.url) || sources.map((x) => directUrl(x?.url)).find(Boolean) || '';
+  return { title, outlet, date, link, anyLink: link || news.url || sources.find((x) => x?.url)?.url || '' };
+}
+// 캡션 끝에 원문 기사(언론사·제목·날짜·링크)를 붙인다. 템플릿의 "출처: …" 한 줄은 이 블록으로 바꾼다
+export function withArticleLink(caption, news, sources = []) {
+  const cap = String(caption || '');
+  const a = articleInfo(news, sources);
+  if (!a.title || cap.includes('📰 원문 기사')) return cap;
+  const block = ['📰 원문 기사', `${a.outlet ? `${a.outlet} ` : ''}「${a.title}」${a.date ? ` (${a.date})` : ''}`, a.link ? `🔗 ${a.link}` : ''].filter(Boolean).join('\n');
+  return `${cap.replace(/\n*출처:[^\n]*$/, '').trimEnd()}\n\n${block}`;
+}
+
 // ---------- 계정별 캐릭터 이름 반영 ----------
 // 기본 프롬프트·템플릿은 모아 기준이라, 다른 캐릭터 계정이면 이름·브랜드를 바꿔 넣는다
 export function personaSystem(base, { charName = '모아', charDesc = '', brand = '', focus = '' } = {}) {
@@ -684,6 +748,38 @@ export function renameCharacter(obj, charName, emoji = '') {
 }
 
 // ---------- 첫 게시물: 모아 소개 ----------
+// AI 없이 형식(추천템·나들이·육아 정보)만 잡아 주는 틀 — 내용은 사용자가 채운다
+export function templateRecipe(news, recipe, { handle = '@moa.story' } = {}) {
+  const base = templateContent(news, { handle });
+  const blank = { body: '', highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' }, layout: 'auto', pose: '', moaSays: '', kind: 'none', specs: [], emoji: '', style: {} };
+  const card = (type, o) => ({ ...blank, type, pose: DEFAULT_POSE[type] || 'default', ...o });
+  // 형식 카드는 기사 제목을 그대로 표지로 (예: "이번 주말 아이와 가볼 만한 키즈카페 4곳")
+  const headline = String(news.title || '').replace(/\s+-\s+[^-]+$/, '').replace(/\[[^\]]{1,12}\]/g, '').replace(/….*$/, '').trim().slice(0, 30) || base.cards[0].title;
+  const hook = card('HOOK', { title: headline, body: '저장해 두고 하나씩 봐요', layout: 'big', moaSays: '같이 볼까?' });
+  const cta = { ...base.cards[base.cards.length - 1], body: '저장해 두고 필요할 때 꺼내 봐요' };
+  const need = '확인 필요';
+  let mid = [];
+  if (recipe === 'items') {
+    mid = [
+      card('WHAT', { title: '이럴 때 필요해요', body: (news.summary || base.cards[1]?.body || '').slice(0, 60), layout: 'text', moaSays: '궁금했지?' }),
+      ...[1, 2, 3, 4].map((i) => card('ITEM', { title: `추천템 ${i}`, body: '한 줄 추천 포인트를 적어 주세요', layout: 'product', emoji: '🛍️', specs: [{ k: '가격대', v: need }, { k: '추천 대상', v: need }, { k: '포인트', v: need }] })),
+      card('LIFE/CHECK', { title: '고를 때 체크!', items: ['안전 인증(KC) 마크 확인', '사용 월령·연령 확인', '세척·관리가 쉬운지', '실사용 후기 확인'], kind: 'checklist', layout: 'list', moaSays: '꼼꼼하게!' }),
+    ];
+  } else if (recipe === 'place') {
+    mid = [
+      ...[1, 2, 3].map((i) => card('PLACE', { title: `가볼 곳 ${i}`, body: '한 줄 꿀팁을 적어 주세요', layout: 'place', emoji: '🎡', specs: [{ k: '위치', v: need }, { k: '운영', v: need }, { k: '요금', v: need }, { k: '추천 나이', v: need }] })),
+      card('LIFE/CHECK', { title: '나들이 준비물', items: ['기저귀·물티슈 넉넉히', '여벌 옷 한 벌', '간식·물', '유모차·수유실 미리 확인'], kind: 'checklist', layout: 'list', moaSays: '챙겼지?' }),
+    ];
+  } else {
+    mid = [
+      card('WHAT', { title: '무엇이 달라져요?', body: (news.summary || base.cards[1]?.body || '').slice(0, 60), layout: 'text', moaSays: '알려줄게!' }),
+      ...[1, 2, 3].map((i) => card('STEP', { title: `STEP ${i}`, body: '따라 하는 방법을 적어 주세요', layout: 'text' })),
+      card('LIFE/CHECK', { title: '이것만 체크!', items: ['대상인지 먼저 확인', '신청 기간 확인', '필요 서류 준비'], kind: 'checklist', layout: 'list' }),
+    ];
+  }
+  return { ...base, recipe, cards: [hook, ...mid, cta], factNotes: ['AI 없이 만든 형식 틀이에요. 아이템·장소·단계 내용을 직접 채워 주세요("확인 필요" 부분).', ...(base.factNotes || [])] };
+}
+
 export function introContentHappy() {
   const blank = { highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' } };
   const card = (type, o) => ({ ...blank, type, body: '', layout: 'big', ...o, style: { hideLabel: true, ...(o.style || {}) } });

@@ -1,5 +1,5 @@
 // 1080×1080 카드뉴스 캔버스 렌더러
-import { CATEGORIES, DEFAULT_POSE } from './ai.js';
+import { CATEGORIES, DEFAULT_POSE, TYPE_LABEL } from './ai.js';
 
 export const SIZE = 1080; // 가로 폭
 // 인스타그램 세로형 비율 (기본 4:5)
@@ -38,7 +38,7 @@ export function autoLayout(card) {
 const MOA_DEFAULT = {
   big: { pos: 'br', size: 1.1 }, text: { pos: 'br', size: 0.95 }, list: { pos: 'br', size: 0.7 },
   number: { pos: 'br', size: 0.9 }, compare: { pos: 'br', size: 0.7 }, keyword: { pos: 'br', size: 0.95 },
-  cta: { pos: 'bc', size: 0.68 },
+  cta: { pos: 'bc', size: 0.68 }, product: { pos: 'br', size: 0.6 }, place: { pos: 'br', size: 0.6 },
 };
 
 // ---------- 폰트 ----------
@@ -373,8 +373,16 @@ export async function renderCard(canvas, content, index, env) {
   // 덱 전체 디자인: 인스타툰 / 매거진 (선택한 대로 7장 모두 적용)
   const theme = deckTheme(content, settings);
   if (!st.bare && theme !== 'classic') {
-    const o = { card, st, settings, env, t, family, fontScale, layout, index };
+    // 추천템·장소 카드는 소프트 테마 전용 레이아웃 — 다른 테마에서는 정보 리스트로 보여 준다
+    let rc = card;
+    let rl = layout;
+    if ((layout === 'product' || layout === 'place') && theme !== 'soft') {
+      rc = { ...card, title: `${card.emoji ? `${card.emoji} ` : ''}${card.title}`, items: [...(card.specs || []).map((x) => `${x.k}: ${x.v}`), card.body].filter(Boolean).slice(0, 5), layout: 'list' };
+      rl = 'list';
+    }
+    const o = { card: rc, st, settings, env, t, family, fontScale, layout: rl, index };
     if (theme === 'magazine') await renderMagazine(ctx, content, o);
+    else if (theme === 'soft') await renderSoft(ctx, content, o);
     else await renderToon(ctx, content, o);
     return canvas;
   }
@@ -452,7 +460,7 @@ export async function renderCard(canvas, content, index, env) {
 
   const ctxText = { family, t, textColor, fontScale, span };
   let y = 170;
-  const label = tagLabel(card.type, settings);
+  const label = tagLabel(TYPE_LABEL[card.type] || card.type, settings);
   if (layout !== 'big' && layout !== 'cta' && !st.hideLabel) y = drawLabel(ctx, label, y, ctxText);
 
   const L = { big: layBig, text: layText, list: layList, number: layNumber, compare: layCompare, keyword: layKeyword, cta: layCta }[layout] || layText;
@@ -942,9 +950,12 @@ function drawMotif(ctx, category, t) {
 // 덱 디자인 테마
 // =====================================================================
 export const DECK_THEMES = {
-  toon: '🐑 인스타툰 (흰 배경 · 손글씨 말풍선 · 모아가 매 장 등장)',
+  soft: '🧁 소프트 정보 카드 (요즘 스타일 · 파스텔 배경 · 흰 둥근 패널 · 저장각 정리형)',
+  toon: '💬 인스타툰 (흰 배경 · 말풍선 · {char}가 매 장 등장)',
   magazine: '📰 매거진 (사진 커버 · 종이 질감 · 굵은 타이포)',
 };
+// 설정·편집기에서 보일 이름 ({char} 자리에 계정 캐릭터 이름)
+export const deckThemeLabel = (k, charName = '모아') => (DECK_THEMES[k] || '').replace('{char}', charName);
 export function deckTheme(content, settings) {
   if (content?.theme) return content.theme;
   if (content?.coverStyle === 'magazine') return 'magazine';
@@ -1528,4 +1539,287 @@ export function loadImage(src) {
     img.onerror = rej;
     img.src = src;
   });
+}
+
+// ---------------------------------------------------------------------
+// 소프트 정보 카드 — 요즘 인스타 정보형 카드뉴스 스타일
+// (파스텔 배경 · 흰 둥근 패널 · 굵은 왼쪽 정렬 제목 · 칩 라벨 · 번호 배지 · 캐릭터 스티커)
+// ---------------------------------------------------------------------
+const mix = (hex, to, a) => {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [r1, g1, b1] = p(hex.length === 7 ? hex : '#F0506E');
+  const [r2, g2, b2] = p(to);
+  return `rgb(${Math.round(r1 + (r2 - r1) * a)},${Math.round(g1 + (g2 - g1) * a)},${Math.round(b1 + (b2 - b1) * a)})`;
+};
+function softPanel(ctx, x, y, w, h, r = 40, fill = '#FFFFFF') {
+  ctx.save();
+  ctx.shadowColor = 'rgba(60,40,20,0.10)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
+  ctx.fillStyle = fill; roundRect(ctx, x, y, w, h, r); ctx.fill();
+  ctx.restore();
+}
+function softChip(ctx, text, x, y, { bg, color, size = 28, padX = 22, h = 54, font }) {
+  ctx.save();
+  ctx.font = `800 ${size}px ${font}`;
+  const w = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = bg; roundRect(ctx, x, y, w, h, h / 2); ctx.fill();
+  ctx.fillStyle = color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(text, x + padX, y + h / 2 + 1);
+  ctx.restore();
+  return w;
+}
+// 사진(배경 이미지)을 둥근 틀 안에 꽉 채워 그린다
+function photoIn(ctx, img, x, y, w, h, r) {
+  ctx.save(); roundRect(ctx, x, y, w, h, r); ctx.clip();
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const sc = Math.max(w / iw, h / ih);
+  ctx.drawImage(img, x + (w - iw * sc) / 2, y + (h - ih * sc) / 2, iw * sc, ih * sc);
+  ctx.restore();
+}
+
+async function renderSoft(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
+  const T = TOON_FONTS[settings.toonFont] || TOON_FONTS.Pretendard;
+  const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
+  const sample = [...new Set([...cardTexts(card), ...(card.specs || []).flatMap((x) => [x.k, x.v])].filter(Boolean).join('').replace(/\s/g, ''))].join('') || '가';
+  try { await Promise.all([document.fonts.load(`700 80px ${T}`, sample), document.fonts.load(`700 40px ${B}`, sample), document.fonts.load(`400 40px ${CHARACTER_FONTS.bubble}`, sample)]); } catch { /* 대체 폰트 */ }
+
+  const accent = st.accent || settings.toonAccent || '#F0506E';
+  const bg = st.bg || mix(accent, '#FFFFFF', 0.86);
+  const ink = st.textColor || '#1C1C1C';
+  const sub = '#6B6B6B';
+  const total = content.cards.length;
+  const X = 64;
+  const W = SIZE - X * 2;
+  const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
+  const catText = cat.scope ? `${cat.emoji} ${cat.name}` : tagLabel(cat.label, settings);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, H);
+  // 배경 장식: 큰 원 두 개 (은은하게)
+  ctx.save(); ctx.globalAlpha = 0.5;
+  ctx.fillStyle = mix(accent, '#FFFFFF', 0.72); ctx.beginPath(); ctx.arc(SIZE - 60, 120, 220, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(80, H - 80, 180, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  const showChar = st.moaPos !== 'none' && env.moa;
+  const charAt = (ratio, sideX = 'right') => {
+    if (!showChar) return null;
+    const h = H * ratio * (st.moaScale || 1);
+    const w = h * (env.moa.naturalWidth / env.moa.naturalHeight);
+    const box = { x: sideX === 'left' ? 24 : SIZE - w - 24, y: H - h - 18, w, h };
+    drawMoa(ctx, env, card, box, t, B);
+    return box;
+  };
+  const title = (text, { max = 92, min = 54, maxLines = 3, top, w = W, color = ink }) => {
+    if (!text) return top;
+    setSpacing(ctx, -Math.round(max * 0.02));
+    const r = fit(ctx, text, { family: T, weight: 700, max: Math.round(max * fontScale), min, maxLines, widthAt: () => w });
+    ctx.font = `700 ${r.size}px ${T}`;
+    const end = drawRich(ctx, text, r.lines, { x: X, w, top, size: r.size, lh: 1.16, color, accent, flags: keyFlags(text, card.highlight), align: 'left' });
+    setSpacing(ctx, 0);
+    return end;
+  };
+  const bodyText = (text, { x = X, w = W, top, max = 44, min = 30, maxLines = 6, color = '#333', align = 'left' }) => {
+    if (!text) return top;
+    const r = fit(ctx, text, { family: B, weight: 600, max: Math.round(max * fontScale), min, maxLines, widthAt: () => w });
+    ctx.font = `600 ${r.size}px ${B}`;
+    return drawRich(ctx, text, r.lines, { x, w, top, size: r.size, lh: 1.45, color, accent, flags: keyFlags(text, card.highlight), align });
+  };
+  const header = () => {
+    softChip(ctx, catText, X, 54, { bg: accent, color: '#FFFFFF', font: B, size: 26, h: 50 });
+    ctx.font = `800 24px ${B}`; ctx.textBaseline = 'middle';
+    const pg = `${index + 1} / ${total}`;
+    const pw = ctx.measureText(pg).width + 36;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; roundRect(ctx, SIZE - X - pw, 56, pw, 46, 23); ctx.fill();
+    ctx.fillStyle = sub; ctx.textAlign = 'center'; ctx.fillText(pg, SIZE - X - pw / 2, 80); ctx.textAlign = 'left';
+  };
+  const footer = () => {
+    ctx.font = `700 24px ${B}`; ctx.fillStyle = 'rgba(0,0,0,0.42)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    const f = index === 1 && content.sources?.length ? `출처: ${content.sources.map((x) => x.name).filter(Boolean).slice(0, 2).join(', ')}` : settings.handle;
+    ctx.fillText(f, X, H - 40);
+  };
+  const typeChip = (y) => {
+    const n = content.cards.slice(0, index + 1).filter((x) => x.type === card.type).length;
+    const label = card.type === 'ITEM' ? `PICK ${n}` : card.type === 'PLACE' ? `SPOT ${n}` : card.type === 'STEP' ? `STEP ${n}` : '';
+    return label ? softChip(ctx, label, X, y, { bg: ink, color: '#FFFFFF', font: B, size: 24, h: 46, padX: 18 }) : 0;
+  };
+
+  // ---------- 1장: 표지 ----------
+  if (index === 0) {
+    const img = env.bgs?.[`${content.id}:0`];
+    softChip(ctx, catText, X, 70, { bg: '#FFFFFF', color: accent, font: B, size: 28, h: 56 });
+    let y = 170;
+    if (img) { photoIn(ctx, img, X, y, W, Math.round(H * 0.34), 40); y += Math.round(H * 0.34) + 40; }
+    y = title(card.title || content.title, { max: img ? 104 : 136, min: 70, maxLines: 3, top: y, w: showChar && !img ? W - 40 : W });
+    if (card.body) y = bodyText(card.body, { top: y + 12, max: 40, color: sub, maxLines: 2, w: W * 0.7 });
+    // 넘겨 보기 안내
+    const by = H - 140;
+    ctx.save();
+    ctx.font = `800 30px ${B}`;
+    const lbl = '저장하고 넘겨보기  →';
+    const lw = ctx.measureText(lbl).width + 56;
+    ctx.fillStyle = ink; roundRect(ctx, X, by, lw, 70, 35); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle'; ctx.fillText(lbl, X + 28, by + 36);
+    ctx.restore();
+    ctx.font = `700 26px ${B}`; ctx.fillStyle = sub; ctx.textBaseline = 'alphabetic'; ctx.fillText(settings.handle, X + 4, by - 22);
+    const box = charAt(img ? 0.24 : 0.36);
+    if (box && card.moaSays) comicBubble(ctx, card.moaSays, { cx: box.x - 20, cy: box.y + box.h * 0.12, maxW: 300, size: 40, target: { x: box.x + box.w * 0.4, y: box.y + box.h * 0.3 }, fill: '#FFFFFF' });
+    return;
+  }
+
+  header();
+  let y = 150;
+  const chipW = typeChip(y);
+  if (chipW) y += 70;
+
+  // ---------- 추천템 / 장소 ----------
+  if (layout === 'product' || layout === 'place') {
+    const img = env.bgs?.[`${content.id}:${index}`];
+    const ph = Math.round(H * (img ? 0.3 : 0.2));
+    const px = X; const pw = W;
+    if (img) photoIn(ctx, img, px, y, pw, ph, 36);
+    else {
+      ctx.fillStyle = mix(accent, '#FFFFFF', 0.7); roundRect(ctx, px, y, pw, ph, 36); ctx.fill();
+      ctx.font = `${Math.round(ph * 0.5)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(card.emoji || (layout === 'place' ? '🎡' : '🛍️'), px + pw / 2, y + ph / 2 + 6); ctx.textAlign = 'left';
+    }
+    y += ph + 34;
+    y = title(card.title, { max: 80, min: 50, maxLines: 2, top: y });
+    const specs = (card.specs || []).slice(0, 4);
+    const ICON = { 위치: '📍', 주소: '📍', 운영: '⏰', 시간: '⏰', 요금: '💰', 가격: '💰', 가격대: '💰', '추천 나이': '👶', '추천 대상': '🙋', 대상: '🙋', 포인트: '✨', 주차: '🚗' };
+    if (specs.length) {
+      const rowH = 74;
+      const top = y + 24;
+      softPanel(ctx, X, top, W, rowH * specs.length + 30, 32);
+      specs.forEach((sp, i) => {
+        const cy = top + 15 + rowH * (i + 0.5);
+        ctx.font = `700 30px ${B}`; ctx.textBaseline = 'middle'; ctx.fillStyle = sub;
+        const icon = ICON[sp.k] || '•';
+        ctx.fillText(`${icon} ${sp.k}`, X + 30, cy);
+        ctx.fillStyle = ink; ctx.font = `700 32px ${B}`;
+        const vx = X + 250;
+        const r = fit(ctx, sp.v, { family: B, weight: 700, max: 34, min: 24, maxLines: 1, widthAt: () => W - 280 });
+        ctx.font = `700 ${r.size}px ${B}`;
+        ctx.fillText(sp.v.slice(r.lines[0]?.start || 0, r.lines[0]?.end || sp.v.length), vx, cy);
+        if (i < specs.length - 1) { ctx.fillStyle = '#EFEAE4'; ctx.fillRect(X + 30, top + 15 + rowH * (i + 1), W - 60, 2); }
+      });
+      y = top + rowH * specs.length + 30;
+    }
+    if (card.body) {
+      const top = y + 24;
+      ctx.font = `700 34px ${B}`;
+      const r = fit(ctx, card.body, { family: B, weight: 700, max: 34, min: 26, maxLines: 2, widthAt: () => W - 120 });
+      const bh = r.lines.length * r.size * 1.4 + 44;
+      ctx.fillStyle = mix(accent, '#FFFFFF', 0.78); roundRect(ctx, X, top, W, bh, 28); ctx.fill();
+      ctx.font = `700 ${r.size}px ${B}`;
+      ctx.fillStyle = accent; ctx.fillText('💡', X + 26, top + 22 + r.size);
+      drawRich(ctx, card.body, r.lines, { x: X + 84, w: W - 110, top: top + 18, size: r.size, lh: 1.4, color: ink, accent, flags: keyFlags(card.body, card.highlight), align: 'left' });
+    }
+    footer();
+    return;
+  }
+
+  // ---------- 리스트 / 체크리스트 / 단계 ----------
+  if (layout === 'list' && (card.items || []).length) {
+    y = title(card.title, { max: 84, min: 52, maxLines: 2, top: y });
+    const items = card.items.slice(0, 5);
+    const check = card.type === 'LIFE/CHECK' && (card.kind || 'checklist') === 'checklist';
+    const avail = H - y - 230;
+    const rowH = Math.min(150, Math.floor(avail / items.length));
+    let top = y + 30;
+    items.forEach((it, i) => {
+      softPanel(ctx, X, top, W, rowH - 18, 30);
+      const cy = top + (rowH - 18) / 2;
+      ctx.fillStyle = check ? mix(accent, '#FFFFFF', 0.75) : accent;
+      ctx.beginPath(); ctx.arc(X + 58, cy, 30, 0, Math.PI * 2); ctx.fill();
+      if (check) {
+        ctx.strokeStyle = accent; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(X + 44, cy); ctx.lineTo(X + 55, cy + 11); ctx.lineTo(X + 74, cy - 12); ctx.stroke();
+      } else {
+        ctx.fillStyle = '#FFFFFF'; ctx.font = `800 32px ${B}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), X + 58, cy + 2); ctx.textAlign = 'left';
+      }
+      const tw = W - 150;
+      const r = fit(ctx, it, { family: B, weight: 700, max: Math.round(38 * fontScale), min: 26, maxLines: 2, widthAt: () => tw });
+      ctx.font = `700 ${r.size}px ${B}`;
+      const th = r.lines.length * r.size * 1.3;
+      drawRich(ctx, it, r.lines, { x: X + 112, w: tw, top: cy - th / 2 - r.size * 0.15, size: r.size, lh: 1.3, color: ink, accent, flags: itemFlags(it, card.highlight), align: 'left' });
+      top += rowH;
+    });
+    charAt(0.16);
+    footer();
+    return;
+  }
+
+  // ---------- 큰 숫자 ----------
+  if (layout === 'number' && card.number) {
+    y = title(card.title, { max: 80, min: 50, maxLines: 2, top: y });
+    const top = y + 30;
+    const ph = Math.round(H * 0.3);
+    softPanel(ctx, X, top, W, ph, 40);
+    const r = fit(ctx, card.number, { family: T, weight: 700, max: 220, min: 100, maxLines: 1, widthAt: () => W - 80 });
+    ctx.font = `700 ${r.size}px ${T}`; ctx.fillStyle = accent; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(card.number, SIZE / 2, top + ph * (card.numberLabel ? 0.42 : 0.5));
+    if (card.numberLabel) { ctx.font = `700 36px ${B}`; ctx.fillStyle = sub; ctx.fillText(card.numberLabel, SIZE / 2, top + ph * 0.8); }
+    ctx.textAlign = 'left';
+    bodyText(card.body, { top: top + ph + 24, max: 40, w: W - 260 });
+    charAt(0.22);
+    footer();
+    return;
+  }
+
+  // ---------- 좌우 비교 ----------
+  if (layout === 'compare' && card.compare?.left) {
+    y = title(card.title, { max: 80, min: 50, maxLines: 2, top: y });
+    const c = card.compare;
+    const gap = 24;
+    const w = (W - gap) / 2;
+    const top = y + 30;
+    const h = Math.min(H - top - 200, 560);
+    [[c.leftTitle || 'BEFORE', c.left, X, false], [c.rightTitle || 'AFTER', c.right, X + w + gap, true]].forEach(([tt, body, x, on]) => {
+      softPanel(ctx, x, top, w, h, 34, on ? mix(accent, '#FFFFFF', 0.82) : '#FFFFFF');
+      softChip(ctx, tt, x + 26, top + 26, { bg: on ? accent : ink, color: '#FFFFFF', font: B, size: 26, h: 50 });
+      bodyText(body, { x: x + 28, w: w - 56, top: top + 100, max: 38, min: 26, maxLines: 8, color: ink });
+    });
+    footer();
+    return;
+  }
+
+  // ---------- CTA ----------
+  if (layout === 'cta') {
+    y = title(card.title, { max: 110, min: 64, maxLines: 3, top: y + 20 });
+    let x = X;
+    ['📌 저장', '💬 공유', `➕ 팔로우`].forEach((lbl, i) => {
+      x += softChip(ctx, lbl, x, y + 40, { bg: i === 2 ? accent : '#FFFFFF', color: i === 2 ? '#FFFFFF' : ink, font: B, size: 32, h: 76, padX: 30 }) + 16;
+    });
+    ctx.font = `800 40px ${B}`; ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(settings.handle, X, y + 200);
+    if (card.body) bodyText(card.body, { top: y + 230, max: 34, color: sub, maxLines: 2, w: W * 0.6 });
+    const box = charAt(0.34);
+    if (box && card.moaSays) comicBubble(ctx, card.moaSays, { cx: box.x - 10, cy: box.y + box.h * 0.1, maxW: 300, size: 40, target: { x: box.x + box.w * 0.4, y: box.y + box.h * 0.3 }, fill: '#FFFFFF' });
+    return;
+  }
+
+  // ---------- 설명형 / 키워드 / 큰 제목 ----------
+  y = title(card.title, { max: layout === 'big' && !card.body ? 120 : 88, min: 54, maxLines: 3, top: y });
+  if (layout === 'keyword' && card.highlight) {
+    y += 30;
+    const r = fit(ctx, card.highlight, { family: T, weight: 700, max: 120, min: 70, maxLines: 1, widthAt: () => W - 100 });
+    ctx.font = `700 ${r.size}px ${T}`;
+    const kw = ctx.measureText(card.highlight).width + 80;
+    ctx.fillStyle = accent; roundRect(ctx, X, y, kw, r.size + 50, 30); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle'; ctx.fillText(card.highlight, X + 40, y + (r.size + 50) / 2 + 4);
+    y += r.size + 50;
+  }
+  if (card.body) {
+    const top = y + 30;
+    ctx.font = `600 44px ${B}`;
+    const r = fit(ctx, card.body, { family: B, weight: 600, max: Math.round(44 * fontScale), min: 30, maxLines: 7, widthAt: () => W - 96 });
+    const ph = r.lines.length * r.size * 1.5 + 90;
+    softPanel(ctx, X, top, W, ph, 40);
+    ctx.font = `600 ${r.size}px ${B}`;
+    drawRich(ctx, card.body, r.lines, { x: X + 48, w: W - 96, top: top + 30, size: r.size, lh: 1.5, color: '#333', accent, flags: keyFlags(card.body, card.highlight), align: 'left' });
+    y = top + ph;
+  }
+  const box = charAt(card.body ? 0.22 : 0.32);
+  if (box && card.moaSays) comicBubble(ctx, card.moaSays, { cx: box.x - 30, cy: box.y + box.h * 0.18, maxW: 300, size: 40, target: { x: box.x + box.w * 0.4, y: box.y + box.h * 0.3 }, fill: '#FFFFFF' });
+  footer();
 }

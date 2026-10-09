@@ -44,11 +44,12 @@ const HAPPY_FOCUS = `이 계정은 육아·아기·유아용품·생활용품·�
 - 뉴스·트렌드를 고를 때도 이 주제와 이어지는 부분(부모에게 생기는 변화, 아이에게 미치는 영향, 살림·소비 팁)만 다룬다.
 - 육아 정책·지원금은 대상·금액·기간·신청처를 정확히, 아이 건강·발달은 단정하지 말고 소아청소년과 상담을 권한다.
 - 제품은 광고처럼 쓰지 않는다. 가격·구매처는 확인된 사실만, 근거 없는 "1위·최고" 표현 금지. 안전·리콜 정보는 꼭 챙긴다.
-- 말투는 다정하고 공감하는 반말. category는 PARENTING(육아)·BABY(아기·유아용품)·LIVING(생활용품)·ITEM(생활템) 중 하나.`;
+- 아기랑 가볼 만한 곳(키즈카페·테마파크·체험·가족 여행)도 다룬다. 장소 정보는 확인된 것만 쓰고 방문 전 확인을 권한다.
+- 말투는 다정하고 공감하는 반말. category는 PARENTING(육아)·BABY(아기·유아용품)·LIVING(생활용품)·ITEM(생활템)·OUTING(아기랑 나들이) 중 하나.`;
 export const DEFAULT_PROFILES = [
   { id: 'moa', name: 'MOA 모아', char: 'moa', charName: '모아', handle: '@moa.story', brand: 'MOA | 모아', tagPrefix: 'MOA', toonFont: 'Pretendard', toonBubble: 'Gowun', shortsFont: 'pblack', slogan: '요즘 뭐가 뜨는지, 모아가 알려줄게.', audience: '20~40대 여성', baseTag: '모아뉴스' },
   { id: 'happy', name: '해피해피', char: 'happy', charName: '해피해피', handle: '@happyhappy', brand: '해피해피', tagPrefix: 'HAPPY', toonAccent: '#F59E0B', toonFont: 'Ssurround', toonBubble: 'Gowun', shortsFont: 'ssurround', theme: { bg: '#FFF8E7', brown: '#7A5A3A', pink: '#F8C9A0', green: '#F3DFA2' },
-    topics: ['PARENTING', 'BABY', 'LIVING', 'ITEM'], focus: HAPPY_FOCUS, slogan: '육아·아기·생활템, 해피해피가 쉽게 골라줄게.', audience: '영유아를 키우는 엄마·아빠', baseTag: '해피해피' },
+    topics: ['PARENTING', 'BABY', 'LIVING', 'ITEM', 'OUTING'], deckTheme: 'soft', focus: HAPPY_FOCUS, slogan: '육아·아기·생활템, 해피해피가 쉽게 골라줄게.', audience: '영유아를 키우는 엄마·아빠', baseTag: '해피해피' },
 ];
 const DEFAULT_BY_ID = Object.fromEntries(DEFAULT_PROFILES.map((p) => [p.id, p]));
 // 글꼴 개편(촌스러운 기본 글꼴 → 요즘 인스타·유튜브 글꼴) 전에 저장된 계정은 한 번만 새 기본값으로 바꾼다
@@ -70,6 +71,13 @@ export function listProfiles() {
     const m = { ...PROFILE_DEFAULTS, ...d, ...p };
     // 기본 계정에 새로 생긴 항목(주제·말투 등)은 기본값을 쓴다
     for (const k of ['topics', 'focus', 'slogan', 'audience', 'baseTag']) if (p[k] === undefined && d[k] !== undefined) m[k] = d[k];
+    // v3: 해피해피에 "아기랑 나들이" 주제와 새 카드 디자인 기본값
+    if (!p.happyV3 && p.id === 'happy') {
+      if (Array.isArray(p.topics) && !p.topics.includes('OUTING')) p.topics = [...p.topics, 'OUTING'];
+      if (!p.deckTheme || p.deckTheme === 'toon') p.deckTheme = 'soft';
+      p.happyV3 = true; changed = true;
+      Object.assign(m, { topics: p.topics || m.topics, deckTheme: p.deckTheme });
+    }
     if (!p.fontsV2) {
       if (OLD_TOON_FONTS.includes(p.toonFont)) m.toonFont = d.toonFont || 'Pretendard';
       m.toonBubble = m.toonBubble || 'Gowun';
