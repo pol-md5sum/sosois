@@ -32,6 +32,9 @@ export const HAPPY_FEEDS = [
   { category: 'BABY', url: q('베이비페어 OR 유모차 OR 카시트 OR 신생아 OR 어린이 제품 리콜') },
   { category: 'LIVING', url: q('생활용품 OR 주방용품 OR 세제 OR 수납 OR 청소용품 OR 살림') },
   { category: 'ITEM', url: q('생활템 OR 살림템 OR 육아템 OR 꿀템 OR 다이소 신상 OR 품절템') },
+  { category: 'ITEM', url: q('육아템 추천 OR 아기 꿀템 OR 살림 꿀템 OR 생활 꿀템 OR 인기템') },
+  { category: 'OUTING', url: q('아이와 가볼만한 곳 OR 아기랑 가볼만한곳 OR 키즈카페 OR 어린이 테마파크 OR 가족 나들이') },
+  { category: 'OUTING', url: q('아이랑 여행 OR 아기랑 여행 OR 유아 동반 여행 OR 어린이 체험 OR 키즈 풀빌라') },
 ];
 const TRENDS_URL = 'https://trends.google.com/trending/rss?geo=KR';
 
@@ -134,6 +137,7 @@ export const HAPPY_KW = {
   BABY: ['아기', '신생아', '유아', '이유식', '기저귀', '분유', '젖병', '유모차', '카시트', '아기띠', '베이비', '출산용품', '유아용품', '아기용품'],
   LIVING: ['생활용품', '주방', '세제', '수납', '정리', '청소', '살림', '욕실', '세탁', '냄비', '프라이팬', '청소기'],
   ITEM: ['생활템', '살림템', '육아템', '꿀템', '추천템', '다이소', '품절', '인기템', '신상', '가성비'],
+  OUTING: ['가볼만한', '가볼 만한', '키즈카페', '테마파크', '나들이', '여행', '체험', '놀이공원', '동물원', '수족관', '캠핑', '축제', '풀빌라', '박물관', '키즈존'],
 };
 export function classifyHappy(text, fallback) {
   let best = fallback;
@@ -233,7 +237,7 @@ export function buildHappyItems(hraw, now = Date.now()) {
     };
   }).filter((x) => x.scores.target > 30 || x.category !== 'PARENTING' || /육아|아이|아기|부모/.test(x.title))
     .sort((a, b) => b.moaScore - a.moaScore);
-  return selectBalanced(list, 15, 70, ['PARENTING', 'BABY', 'LIVING', 'ITEM']);
+  return selectBalanced(list, 15, 85, ['PARENTING', 'BABY', 'LIVING', 'ITEM', 'OUTING']);
 }
 async function fetchText(url) {
   const res = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (MOA Content Studio news bot)' }, signal: AbortSignal.timeout(20000) });

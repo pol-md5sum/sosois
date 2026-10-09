@@ -140,4 +140,23 @@ assert.ok(!capL.includes('출처: 연합뉴스'), '출처 한 줄은 원문 기�
 const capG = AI2.withArticleLink('본문', { title: '제목', source: 'KBS', url: 'https://news.google.com/rss/articles/abc' });
 assert.ok(capG.includes('KBS 「제목」') && !capG.includes('news.google.com'), capG);
 assert.equal(AI2.withArticleLink(capL, { title: 'x' }), capL, '두 번 넣지 않음');
+// 카드뉴스 형식(추천템·나들이·육아 정보)
+const nr = AI2.normalizeContent({ cards: [
+  { type: 'HOOK', title: '표지' }, { type: 'PLACE', title: '키즈랜드', specs: [{ k: '위치', v: '판교' }, { k: '', v: 'x' }], emoji: '🎡' },
+  { type: 'PLACE', title: '테마파크' }, { type: 'LIFE/CHECK', title: '준비물', items: ['물티슈'] }, { type: 'CTA', title: '끝' },
+] }, { recipe: 'place', category: 'OUTING' });
+assert.equal(nr.cards.length, 5, '형식 카드는 7장으로 늘리지 않음');
+assert.deepEqual(nr.cards.map((x) => x.type), ['HOOK', 'PLACE', 'PLACE', 'LIFE/CHECK', 'CTA']);
+assert.equal(nr.cards[1].layout, 'place');
+assert.deepEqual(nr.cards[1].specs, [{ k: '위치', v: '판교' }]);
+assert.equal(nr.recipe, 'place');
+assert.equal(AI2.normalizeContent({ cards: [{}, {}] }, {}).cards.length, 7, '뉴스 요약은 7장 그대로');
+for (const r of ['items', 'place', 'guide']) {
+  const tr = AI2.templateRecipe({ title: '주말 아이와 가볼 만한 곳 - 뉴스1' }, r, { handle: '@h' });
+  assert.equal(tr.cards[0].type, 'HOOK'); assert.equal(tr.cards.at(-1).type, 'CTA');
+  assert.ok(tr.cards.length >= 5 && tr.cards.length <= 10, `${r}: ${tr.cards.length}`);
+}
+assert.ok(AI2.buildContentPrompt({ title: 't', recipe: 'items', category: 'ITEM' }).includes('추천템'));
+assert.equal(FN.classifyHappy('주말 아이와 가볼만한 키즈카페 테마파크', 'PARENTING'), 'OUTING');
+assert.ok(AI2.HAPPY_TOPICS.includes('OUTING'));
 console.log('profile selftest OK');

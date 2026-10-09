@@ -1,14 +1,14 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo, RECIPES, templateRecipe,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
   putBg, deleteBg, getBgsFor, listProfiles, getActiveProfile, setActiveProfile, saveProfile, deleteProfile, CHARACTERS, charOf, charNameOf, poseKey, mineOnly, profileOfItem,
 } from './store.js';
-import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS, TOON_FONT_LABELS, BUBBLE_FONTS, BUBBLE_FONT_LABELS } from './render.js';
+import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, deckThemeLabel, TOON_FONTS, TOON_FONT_LABELS, BUBBLE_FONTS, BUBBLE_FONT_LABELS } from './render.js';
 
 import { createShortsViews, FONTS as SHORTS_FONTS } from './shorts.js';
 
@@ -24,7 +24,7 @@ const catLabel = (k) => { const v = CATEGORIES[k]; return v ? `${v.emoji} ${v.sc
 // 카테고리 선택지는 현재 계정 주제만 (지금 값이 다른 주제면 그것도 보이게)
 const catOptions = (cur) => [...new Set([...BR().topics, ...(cur && CATEGORIES[cur] ? [cur] : [])])].map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(catLabel(k))}</option>`).join('');
 // 뉴스·트렌드를 현재 계정 주제로 거른다
-const HAPPY_TREND_RE = /육아|아기|아이|유아|출산|임신|어린이|키즈|엄마|아빠|부모|이유식|기저귀|분유|유모차|살림|생활용품|주방|청소|세제|수납|다이소|생활템|꿀템|육아템/;
+const HAPPY_TREND_RE = /육아|아기|아이|유아|출산|임신|어린이|키즈|엄마|아빠|부모|이유식|기저귀|분유|유모차|살림|생활용품|주방|청소|세제|수납|다이소|생활템|꿀템|육아템|나들이|가볼만한|키즈카페|테마파크|놀이공원|동물원|체험|가족여행/;
 function scopeNews(data) {
   const b = BR();
   const items = (data.items || []).filter((n) => b.topics.includes(n.category));
@@ -270,7 +270,7 @@ async function dashboard() {
   <section class="hero">
     <div>
       <h1>${esc(b.slogan)}</h1>
-      <p class="sub" style="margin-bottom:16px">${b.happy ? '육아·아기용품·생활용품·생활템 소식을 고르면' : '오늘의 뉴스를 고르면'} AI가 7장 카드뉴스·캡션·해시태그까지 한 번에 만들어요.</p>
+      <p class="sub" style="margin-bottom:16px">${b.happy ? '육아·아기용품·생활용품·생활템 소식을 고르면' : '오늘의 뉴스를 고르면'} AI가 카드뉴스·캡션·해시태그까지 한 번에 만들어요.</p>
       <div class="row">
         <button class="btn primary big" id="oneclick">${b.emoji} 오늘의 콘텐츠 만들기</button>
         <a class="btn big" href="#/news">오늘의 뉴스 보기</a>
@@ -366,6 +366,7 @@ async function topicsView(cat) {
     <p class="small" style="margin:12px 0 6px"><b>${esc(BR().name)} 작성 원칙</b> · ${esc(c.guide)}</p>
     <p class="small muted" style="margin:0">기본 해시태그: ${[BR().baseTag, ...c.tags].map((t) => `#${esc(t)}`).join(' ')}</p>
     <div class="row" style="margin-top:14px">
+      ${recipeSelect('t-recipe', CATEGORIES[key]?.recipe && BR().happy ? CATEGORIES[key].recipe : 'auto')}
       <button class="btn primary" id="t-one" ${items.length ? '' : 'disabled'}>${BR().emoji} 이 주제 1위 뉴스로 만들기</button>
       <button class="btn" id="t-three" ${items.length ? '' : 'disabled'}>📦 이 주제 TOP 3 한 번에 만들기</button>
       <a class="btn" href="#/create" id="t-manual">✏️ 이 주제로 직접 입력</a>
@@ -377,10 +378,10 @@ async function topicsView(cat) {
   bindMake(view);
   const provider = () => { const s = getSettings(); return getKeys()[s.provider] ? s.provider : (availableProviders()[0] || 'template'); };
   $('#t-one').addEventListener('click', async () => {
-    const out = await runGenerate(items.slice(0, 1), provider(), { webSearch: getSettings().webSearch });
+    const out = await runGenerate(items.slice(0, 1), provider(), { webSearch: getSettings().webSearch, recipe: $('#t-recipe').value });
     if (out[0]) location.hash = `#/editor/${out[0].id}`;
   });
-  $('#t-three').addEventListener('click', () => runGenerate(items.slice(0, 3), provider(), { webSearch: getSettings().webSearch }, { status: 'done', zip: true }));
+  $('#t-three').addEventListener('click', () => runGenerate(items.slice(0, 3), provider(), { webSearch: getSettings().webSearch, recipe: $('#t-recipe').value }, { status: 'done', zip: true }));
   $('#t-manual').addEventListener('click', () => setDraftNews({ category: key, title: '', summary: '', url: '', source: '', sources: [] }));
 }
 
@@ -422,10 +423,10 @@ async function createView() {
   const n = getDraftNews() || { category: BR().topics[0] || 'NEWS', title: '', summary: '', url: '', source: '', sources: [] };
   view.innerHTML = `
   <h1>✏️ 콘텐츠 만들기</h1>
-  <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 7장 원고·${esc(BR().name)} 포즈·캡션·해시태그가 한 번에 만들어져요.${BR().happy ? ' 해피해피 계정은 육아·아기·생활용품·생활템 관점으로 원고를 써요.' : ''}</p>
+  <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 카드 원고·${esc(BR().name)} 포즈·캡션·해시태그가 한 번에 만들어져요.${BR().happy ? ' 해피해피 계정은 육아·아기·생활용품·생활템 관점으로 원고를 써요.' : ''}</p>
   <section class="panel url-box">
     <h3>🔗 뉴스 기사 URL로 바로 만들기</h3>
-    <p class="small muted" style="margin:0 0 10px">기사 주소를 붙여넣으면 AI가 기사를 직접 읽고 7장 카드뉴스를 만들어요. (Claude·Gemini·GPT 키 필요, 주제는 AI가 판단)</p>
+    <p class="small muted" style="margin:0 0 10px">기사 주소를 붙여넣으면 AI가 기사를 직접 읽고 카드뉴스를 만들어요. (Claude·Gemini·GPT 키 필요, 주제는 AI가 판단)</p>
     <div class="row" style="flex-wrap:nowrap">
       <input type="url" id="u-url" placeholder="https://n.news.naver.com/... 또는 언론사 기사 주소" style="flex:1">
       <button class="btn primary" id="u-go">이 기사로 만들기</button>
@@ -453,7 +454,8 @@ async function createView() {
       ${n.sources?.length ? `<div class="field"><label>같은 사건의 다른 보도 (${n.sources.length})</label><div class="small">${n.sources.slice(0, 8).map((x) => `<div>· <a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a> <span class="muted">${esc(x.name)}</span></div>`).join('')}</div></div>` : ''}
       <div class="field"><label for="n-body">기사 본문 붙여넣기 (권장)</label>
         <textarea id="n-body" rows="8" placeholder="원문 기사 본문을 붙여넣으면 AI가 더 정확하게 씁니다. 비워두면 제목·관련 보도만 참고하거나, 웹 검색을 켜서 사실을 확인해요."></textarea></div>
-      <div class="field"><label for="n-extra">추가 요청 (선택)</label><input type="text" id="n-extra" placeholder="예: 직장인 관점으로, 숫자 위주로"></div>
+      <div class="field"><label for="n-extra">추가 요청 (선택)</label><input type="text" id="n-extra" placeholder="${BR().happy ? '예: 돌 전 아기 기준으로, 가성비 위주로, 서울·경기 장소로' : '예: 직장인 관점으로, 숫자 위주로'}"></div>
+      <div class="field"><label for="n-recipe">카드뉴스 형식</label>${recipeSelect('n-recipe')}</div>
     </section>
     <section class="panel">
       <h3>AI 모델</h3>
@@ -519,7 +521,7 @@ async function createView() {
     const p = keys[provider] ? provider : availableProviders()[0];
     if (!p) { toast('이미지로 만들려면 설정에서 AI API 키를 하나 이상 넣어 주세요.', true); return; }
     const nn = { id: `i${Date.now()}`, category: '', title: '', url: $('#u-url').value.trim(), source: '', sources: [], summary: '' };
-    const c = await runGenerate([nn], p, { images: shots, extra: $('#n-extra').value.trim() });
+    const c = await runGenerate([nn], p, { images: shots, extra: $('#n-extra').value.trim(), recipe: $('#n-recipe').value });
     if (c[0]) location.hash = `#/editor/${c[0].id}`;
   });
   $('#u-url').addEventListener('paste', () => setTimeout(() => $('#u-url').value && $('#u-go').focus(), 0));
@@ -529,18 +531,18 @@ async function createView() {
     const p = keys[provider] ? provider : availableProviders()[0];
     if (!p) { toast('URL로 만들려면 설정에서 AI API 키를 하나 이상 넣어 주세요.', true); return; }
     const nn = { id: `u${Date.now()}`, category: '', title: '', url, source: '', sources: [{ name: '', title: '', url }], summary: '' };
-    const c = await runGenerate([nn], p, { fromUrl: true, extra: $('#n-extra').value.trim() });
+    const c = await runGenerate([nn], p, { fromUrl: true, extra: $('#n-extra').value.trim(), recipe: $('#n-recipe').value });
     if (c[0]) location.hash = `#/editor/${c[0].id}`;
   });
   $('#go').addEventListener('click', async () => {
     const nn = guard(); if (!nn) return;
     if (!keys[provider]) { toast(`${PROVIDERS[provider].label} API 키가 없어요. 설정에서 넣거나 템플릿으로 만들어 주세요.`, true); return; }
-    const c = await runGenerate([nn], provider, { webSearch: $('#websearch').checked, readArticle: $('#readarticle').checked, extra: $('#n-extra').value.trim() });
+    const c = await runGenerate([nn], provider, { webSearch: $('#websearch').checked, readArticle: $('#readarticle').checked, extra: $('#n-extra').value.trim(), recipe: $('#n-recipe').value });
     if (c[0]) location.hash = `#/editor/${c[0].id}`;
   });
   $('#tpl').addEventListener('click', async () => {
     const nn = guard(); if (!nn) return;
-    const c = await runGenerate([nn], 'template', {});
+    const c = await runGenerate([nn], 'template', { recipe: $('#n-recipe').value });
     if (c[0]) location.hash = `#/editor/${c[0].id}`;
   });
   $('#cmp').addEventListener('click', () => {
@@ -554,8 +556,11 @@ async function generateContent(news, provider, opts = {}) {
   let body;
   // 기사 링크가 있으면 AI가 원문을 직접 읽고 분석하게 한다 (설정에서 끌 수 있음)
   if (provider !== 'template' && s.readArticle !== false && news.url && !opts.images?.length && opts.readArticle !== false) opts = { ...opts, fromUrl: true };
+  // 카드뉴스 형식: 직접 고른 형식, 아니면 해피해피는 주제별 기본 형식(나들이→장소, 생활템→추천템…)
+  const recipe = opts.recipe && opts.recipe !== 'auto' ? opts.recipe : (s.focus ? (CATEGORIES[news.category]?.recipe || 'news') : 'news');
+  news = { ...news, recipe };
   if (provider === 'template') {
-    body = templateContent(news, { handle: s.handle });
+    body = recipe !== 'news' ? templateRecipe(news, recipe, { handle: s.handle }) : templateContent(news, { handle: s.handle });
   } else {
     const text = await callModel(provider, {
       apiKey: getKeys()[provider], model: s.models[provider], system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand, focus: s.focus }),
@@ -739,7 +744,16 @@ async function runCompare(news, opts) {
 
 // ---------- 카드 편집기 ----------
 const POS_LABEL = { '': '자동', br: '오른쪽 아래', bl: '왼쪽 아래', bc: '가운데 아래', tr: '오른쪽 위', tl: '왼쪽 위', none: '숨기기' };
-const LAYOUT_LABEL = { auto: '자동', big: '큰 제목', text: '설명형', list: '리스트', number: '큰 숫자', compare: '좌우 비교', keyword: '키워드 강조', cta: 'CTA' };
+const LAYOUT_LABEL = { auto: '자동', big: '큰 제목', text: '설명형', list: '리스트', number: '큰 숫자', compare: '좌우 비교', keyword: '키워드 강조', cta: 'CTA', product: '추천템 카드', place: '장소 카드' };
+// 카드뉴스 형식 선택 (자동 = 주제에 맞게)
+const recipeSelect = (id, cur = 'auto') => `<select id="${id}" title="카드뉴스 형식"><option value="auto" ${cur === 'auto' ? 'selected' : ''}>✨ 형식: 주제에 맞게 자동</option>${Object.entries(RECIPES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`;
+// 장 순서가 바뀌면 장별 배경 이미지도 같은 장을 따라가게 옮긴다 (order[새 위치] = 예전 위치)
+async function remapBgs(cid, order) {
+  const old = await getBgsFor(cid);
+  for (const k of Object.keys(old)) await deleteBg(k);
+  for (let ni = 0; ni < order.length; ni++) { const b = old[`${cid}:${order[ni]}`]; if (b) await putBg(`${cid}:${ni}`, b); }
+}
+let EDITOR_START = 0;
 
 async function editorView(id) {
   const c = getContent(id);
@@ -748,7 +762,8 @@ async function editorView(id) {
   const env = await renderEnv();
   env.bgs = await loadBgs(c.id);
   c.format = c.format || DEFAULT_FORMAT;
-  let cur = 0;
+  let cur = Math.min(EDITOR_START, c.cards.length - 1);
+  EDITOR_START = 0;
   view.innerHTML = `
   <div class="row" style="margin-bottom:14px">
     <input type="text" id="e-title" value="${esc(c.title)}" style="max-width:520px;font-weight:800;font-size:18px">
@@ -756,13 +771,13 @@ async function editorView(id) {
     <label class="small" for="e-cat" style="font-weight:700;color:var(--brown)">주제</label>
     <select id="e-cat">${catOptions(c.category)}</select>
     <label class="small" for="e-theme" style="font-weight:700;color:var(--brown)">디자인</label>
-    <select id="e-theme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === deckTheme(c, env.settings) ? 'selected' : ''}>${v.split(' (')[0]}</option>`).join('')}</select>
+    <select id="e-theme">${Object.keys(DECK_THEMES).map((k) => `<option value="${k}" ${k === deckTheme(c, env.settings) ? 'selected' : ''}>${esc(deckThemeLabel(k, BR().name).split(' (')[0])}</option>`).join('')}</select>
     <label class="small" for="e-format" style="font-weight:700;color:var(--brown)">크기</label>
     <select id="e-format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === c.format ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
     <span class="spacer"></span>
     <button class="btn" id="e-png">⬇️ 이 카드 PNG</button>
-    <button class="btn primary" id="e-zip">📦 7장 ZIP</button>
+    <button class="btn primary" id="e-zip">📦 전체 ZIP</button>
   </div>
   ${c.factNotes?.length ? `<div class="notice"><b>확인이 필요한 내용</b><ul style="margin:6px 0 0;padding-left:18px">${c.factNotes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
   <div class="editor">
@@ -811,7 +826,8 @@ async function editorView(id) {
     const st = k.style;
     const lay = autoLayout(k);
     $('#panel').innerHTML = `
-      <h3>${String(cur + 1).padStart(2, '0')} · ${esc(k.type)}</h3>
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">${String(cur + 1).padStart(2, '0')} · ${esc(k.type)}</h3>
+        <div class="row slide-tools"><button class="btn sm" id="sl-up" ${cur ? '' : 'disabled'} title="앞으로">◀</button><button class="btn sm" id="sl-down" ${cur < c.cards.length - 1 ? '' : 'disabled'} title="뒤로">▶</button><button class="btn sm" id="sl-dup" title="이 장 복제">⧉ 복제</button><button class="btn sm danger" id="sl-del" ${c.cards.length > 2 ? '' : 'disabled'}>🗑 이 장 삭제</button></div></div>
       <div class="two">
         <div class="field"><label>레이아웃</label><select data-k="layout">${LAYOUTS.map((l) => `<option value="${l}" ${l === k.layout ? 'selected' : ''}>${LAYOUT_LABEL[l]}${l === 'auto' ? ` (${LAYOUT_LABEL[lay]})` : ''}</option>`).join('')}</select></div>
         <div class="field"><label>${esc(BR().name)} 포즈</label><select data-k="pose">${Object.entries(POSES).map(([p, l]) => `<option value="${p}" ${p === k.pose ? 'selected' : ''}>${l}${p === DEFAULT_POSE[k.type] ? ' (추천)' : ''}</option>`).join('')}</select></div>
@@ -821,6 +837,8 @@ async function editorView(id) {
       <div class="field"><label>본문</label><textarea data-k="body" rows="3">${esc(k.body)}</textarea></div>
       <div class="field"><label>강조 문구 (제목·본문 안의 단어)</label><input type="text" data-k="highlight" value="${esc(k.highlight)}"></div>
       <div class="field"><label>리스트 (한 줄에 하나, 3~5개)</label><textarea data-k="items" rows="4">${esc((k.items || []).join('\n'))}</textarea></div>
+      ${['product', 'place'].includes(lay) || k.specs?.length ? `<div class="field"><label>${lay === 'place' ? '장소 정보' : '추천템 정보'} (한 줄에 "항목: 내용", 최대 4줄)</label><textarea id="k-specs" rows="4" placeholder="${lay === 'place' ? '위치: 경기 용인\n운영: 10:00~18:00\n요금: 아이 1만 원\n추천 나이: 12개월 이상' : '가격대: 1만 원대\n추천 대상: 6개월 이상\n포인트: 한 손으로 접혀요'}">${esc((k.specs || []).map((x) => `${x.k}: ${x.v}`).join('\n'))}</textarea></div>
+      <div class="field"><label>그림 이모지 (사진이 없을 때 표시 · 아래 "배경 이미지"로 실제 사진을 넣을 수 있어요)</label><input type="text" data-k="emoji" value="${esc(k.emoji || '')}" maxlength="4" style="max-width:120px"></div>` : ''}
       <div class="two">
         <div class="field"><label>큰 숫자</label><input type="text" data-k="number" value="${esc(k.number)}" placeholder="예: 3.5%"></div>
         <div class="field"><label>숫자 설명</label><input type="text" data-k="numberLabel" value="${esc(k.numberLabel)}"></div>
@@ -846,7 +864,7 @@ async function editorView(id) {
         <label class="small">글자색 <input type="color" data-s="textColor" value="${st.textColor || env.settings.theme.brown}"></label>
       </div>
       <div class="row" style="margin-top:10px">
-        <button class="btn sm" id="style-all">이 디자인을 7장 모두에 적용</button>
+        <button class="btn sm" id="style-all">이 디자인을 모든 장에 적용</button>
         <button class="btn sm" id="style-reset">디자인 초기화</button>
       </div>
       <h3 style="margin-top:18px">배경 이미지</h3>
@@ -885,6 +903,29 @@ async function editorView(id) {
       k[key] = key === 'items' ? el.value.split('\n').map((x) => x.trim()).filter(Boolean) : el.value;
       persist(); redraw();
     }));
+    $('#k-specs')?.addEventListener('input', (e) => {
+      k.specs = e.target.value.split('\n').map((ln) => { const i = ln.indexOf(':'); return i > 0 ? { k: ln.slice(0, i).trim(), v: ln.slice(i + 1).trim() } : null; }).filter((x) => x && x.k && x.v).slice(0, 5);
+      persist(); redraw();
+    });
+    // 장 순서 바꾸기·복제·삭제 (장별 배경 이미지도 같이 옮김)
+    const reorder = async (order, focus, cards) => {
+      c.cards = cards || order.map((i) => c.cards[i]);
+      clearTimeout(saveTimer); saveContent(c); // 바로 저장해야 다시 열 때 바뀐 순서가 보인다
+      await remapBgs(c.id, order);
+      EDITOR_START = focus;
+      editorView(c.id);
+    };
+    const idx = c.cards.map((_, i) => i);
+    $('#sl-up').addEventListener('click', () => { const o = [...idx]; [o[cur - 1], o[cur]] = [o[cur], o[cur - 1]]; reorder(o, cur - 1); });
+    $('#sl-down').addEventListener('click', () => { const o = [...idx]; [o[cur + 1], o[cur]] = [o[cur], o[cur + 1]]; reorder(o, cur + 1); });
+    $('#sl-dup').addEventListener('click', () => {
+      const o = [...idx.slice(0, cur + 1), cur, ...idx.slice(cur + 1)];
+      reorder(o, cur + 1, o.map((i, n) => (n === cur + 1 ? JSON.parse(JSON.stringify(c.cards[i])) : c.cards[i])));
+    });
+    $('#sl-del').addEventListener('click', () => {
+      if (!confirm(`${cur + 1}번째 장을 삭제할까요?`)) return;
+      reorder(idx.filter((i) => i !== cur), Math.max(0, cur - 1));
+    });
     $$('[data-c]', $('#panel')).forEach((el) => el.addEventListener('input', () => {
       k.compare = { ...(k.compare || {}), [el.dataset.c]: el.value }; persist(); redraw();
     }));
@@ -898,7 +939,7 @@ async function editorView(id) {
     }));
     $('#style-all').addEventListener('click', async () => {
       c.cards.forEach((x, i) => { if (i !== cur) x.style = { ...(x.style || {}), bg: st.bg, accent: st.accent, textColor: st.textColor, fontScale: st.fontScale }; Object.keys(x.style).forEach((kk) => x.style[kk] === undefined && delete x.style[kk]); });
-      persist(); await drawAll(); toast('7장 모두에 적용했어요.');
+      persist(); await drawAll(); toast('모든 장에 적용했어요.');
     });
     $('#style-reset').addEventListener('click', () => { k.style = {}; persist(); fillPanel(); redraw(); });
   }
@@ -1093,7 +1134,7 @@ async function settingsView(arg) {
     </div>
     <div class="font-preview" id="font-preview"></div>
     <label class="small">인스타툰 강조색 <input type="color" id="toonaccent" value="${s.toonAccent || '#F0506E'}"></label>
-    <div class="field"><label for="decktheme">카드뉴스 디자인 (7장 전체)</label><select id="decktheme">${Object.entries(DECK_THEMES).map(([k, v]) => `<option value="${k}" ${k === (s.deckTheme || 'toon') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <div class="field"><label for="decktheme">카드뉴스 디자인 (모든 장)</label><select id="decktheme">${Object.keys(DECK_THEMES).map((k) => `<option value="${k}" ${k === (s.deckTheme || 'toon') ? 'selected' : ''}>${esc(deckThemeLabel(k, charNameOf(prof)))}</option>`).join('')}</select></div>
     <label class="row small" style="margin-bottom:10px"><input type="checkbox" id="autocover" ${s.autoCover ? 'checked' : ''}> 매거진 디자인일 때 첫 장 실사 사진 배경을 AI로 자동 생성 (GPT·Gemini 키 필요, 이미지 1장 생성 비용 발생)</label>
     <div class="row">${Object.entries({ bg: '배경', brown: '브라운', pink: '핑크', green: '그린' }).map(([k, l]) => `<label class="small">${l} <input type="color" data-theme="${k}" value="${s.theme[k]}"></label>`).join('')}
       <button class="btn sm" id="theme-reset">기본 색으로</button></div>
