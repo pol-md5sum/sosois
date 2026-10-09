@@ -1039,11 +1039,43 @@ function drawRich(ctx, text, lines, { x, w, top, size, lh, color, accent, flags,
 }
 
 // 노란 손글씨 말풍선 — side: 모아가 있는 쪽
+// 말풍선 외곽선: 둥근 사각형과 꼬리를 한 번에 이어 그린다 (꼬리 이음새가 깨지지 않게)
+// tail = { edge: 'top'|'bottom'|'left'|'right', p: 가장자리 위 꼬리 중심, b: 꼬리 밑변 절반, tx, ty: 꼬리 끝 }
+function bubblePath(ctx, x, y, w, h, r, tail) {
+  const t = tail;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  if (t?.edge === 'top') { ctx.lineTo(t.p - t.b, y); ctx.quadraticCurveTo(t.p - t.b * 0.2, y, t.tx, t.ty); ctx.quadraticCurveTo(t.p + t.b * 0.35, y, t.p + t.b, y); }
+  ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+  if (t?.edge === 'right') { ctx.lineTo(x + w, t.p - t.b); ctx.quadraticCurveTo(x + w, t.p - t.b * 0.2, t.tx, t.ty); ctx.quadraticCurveTo(x + w, t.p + t.b * 0.35, x + w, t.p + t.b); }
+  ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  if (t?.edge === 'bottom') { ctx.lineTo(t.p + t.b, y + h); ctx.quadraticCurveTo(t.p + t.b * 0.2, y + h, t.tx, t.ty); ctx.quadraticCurveTo(t.p - t.b * 0.35, y + h, t.p - t.b, y + h); }
+  ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+  if (t?.edge === 'left') { ctx.lineTo(x, t.p + t.b); ctx.quadraticCurveTo(x, t.p + t.b * 0.2, t.tx, t.ty); ctx.quadraticCurveTo(x, t.p - t.b * 0.35, x, t.p - t.b); }
+  ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+// 깔끔한 말풍선: 그림자 → 채우기 → 얇은 외곽선
+function paintBubble(ctx, x, y, w, h, r, tail, { fill, ink, lw = 3.5 }) {
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  bubblePath(ctx, x, y, w, h, r, tail);
+  ctx.shadowColor = 'rgba(40,30,20,0.16)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.shadowColor = 'transparent';
+  if (lw > 0) { ctx.strokeStyle = ink; ctx.lineWidth = lw; ctx.stroke(); }
+  ctx.restore();
+}
+// 둥근 모서리 반지름과 꼬리 밑변: 옆면에 꼬리를 달 공간을 남긴다
+const bubbleRadius = (h) => Math.max(14, Math.min(40, h * 0.36));
+const tailBase = (span) => Math.max(8, Math.min(20, span / 2 - 4));
+const clampTo = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
 function drawToonBubble(ctx, text, box, side = 'right', maxW = 340) {
   if (!text) return;
   const bf = CHARACTER_FONTS.bubble;
   ctx.save();
-  ctx.font = `400 46px ${bf}`;
+  ctx.font = `400 44px ${bf}`;
   const lines = [];
   let cur = '';
   for (const w of text.split(/\s+/)) {
@@ -1052,28 +1084,18 @@ function drawToonBubble(ctx, text, box, side = 'right', maxW = 340) {
   }
   if (cur) lines.push(cur);
   const shown = lines.slice(0, 3);
-  const bw = Math.max(...shown.map((l) => ctx.measureText(l).width)) + 64;
-  const bh = shown.length * 50 + 40;
-  const bx = side === 'right' ? Math.max(30, box.x - bw + 30) : Math.min(SIZE - bw - 30, box.x + box.w - 30);
+  const lh = 54;
+  const bw = Math.max(...shown.map((l) => ctx.measureText(l).width)) + 68;
+  const bh = shown.length * lh + 40;
+  const bx = side === 'right' ? Math.max(30, box.x - bw + 10) : Math.min(SIZE - bw - 30, box.x + box.w - 10);
   const by = Math.max(20, box.y + box.h * 0.3 - bh / 2);
-  ctx.fillStyle = '#FFE58A'; ctx.strokeStyle = '#4A3B2F'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
-  const rr = 34;
-  const tailY = by + bh * 0.62;
-  ctx.beginPath();
-  ctx.moveTo(bx + rr, by);
-  ctx.lineTo(bx + bw - rr, by + 2);
-  ctx.quadraticCurveTo(bx + bw, by, bx + bw - 2, by + rr);
-  if (side === 'right') { ctx.lineTo(bx + bw - 2, tailY - 14); ctx.lineTo(bx + bw + 46, tailY + 18); ctx.lineTo(bx + bw - 6, tailY + 6); }
-  ctx.lineTo(bx + bw, by + bh - rr);
-  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh - 1);
-  ctx.lineTo(bx + rr, by + bh);
-  ctx.quadraticCurveTo(bx, by + bh, bx + 1, by + bh - rr);
-  if (side === 'left') { ctx.lineTo(bx + 2, tailY + 6); ctx.lineTo(bx - 46, tailY + 18); ctx.lineTo(bx + 2, tailY - 14); }
-  ctx.lineTo(bx, by + rr);
-  ctx.quadraticCurveTo(bx, by, bx + rr, by);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
+  const r = bubbleRadius(bh);
+  const b = tailBase(bh - 2 * r);
+  const p = clampTo(by + bh * 0.6, by + r + b, by + bh - r - b);
+  const tail = side === 'right' ? { edge: 'right', p, b, tx: bx + bw + 40, ty: p + 20 } : { edge: 'left', p, b, tx: bx - 40, ty: p + 20 };
+  paintBubble(ctx, bx, by, bw, bh, r, tail, { fill: '#FFE58A', ink: '#4A3B2F' });
   ctx.fillStyle = '#3A2E25'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  shown.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + 45 + i * 50));
+  shown.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + 20 + lh * (i + 0.5)));
   ctx.restore();
 }
 
@@ -1134,6 +1156,7 @@ export function applyFonts(settings = {}) {
 // 손그림 말풍선: 텍스트 박스를 그리고 꼬리를 target 쪽으로 낸다
 function comicBubble(ctx, text, { cx, cy, maxW = 560, size = 50, target, fill = '#FFFFFF', ink = '#1E1E1E', seed = 1, align = 'center' }) {
   if (!text) return null;
+  void seed;
   const bf = CHARACTER_FONTS.bubble;
   ctx.save();
   ctx.font = `400 ${size}px ${bf}`;
@@ -1147,51 +1170,33 @@ function comicBubble(ctx, text, { cx, cy, maxW = 560, size = 50, target, fill = 
     if (cur.trim()) lines.push(cur.trim());
   }
   const shown = lines.slice(0, 5);
-  const lh = size * 1.12;
-  const w = Math.max(...shown.map((l) => ctx.measureText(l).width)) + size * 1.3;
-  const h = shown.length * lh + size * 0.9;
+  const lh = size * 1.3;
+  const w = Math.max(...shown.map((l) => ctx.measureText(l).width)) + size * 1.4;
+  const h = shown.length * lh + size * 0.8;
   let x = align === 'left' ? cx : cx - w / 2;
   x = Math.max(28, Math.min(SIZE - w - 28, x));
   const y = cy - h / 2;
-  const rnd = seeded(seed);
-  const j = () => (rnd() - 0.5) * 6;
-  const r = Math.min(h / 2, 70);
-  // 꼬리 (말풍선 가장자리 → 대상 방향)
+  const r = bubbleRadius(h);
+  // 꼬리: 대상(캐릭터 머리)이 위·아래에 있으면 위·아래 변에서, 옆에 있으면 옆면에서
   let tail = null;
   if (target) {
-    const bx = Math.max(x + r, Math.min(x + w - r, target.x));
-    const by = target.y > y + h ? y + h : target.y < y ? y : null;
-    if (by !== null) {
-      const dir = Math.sign(target.y - by) || 1;
-      const len = Math.min(70, Math.abs(target.y - by) * 0.6 + 30);
-      const tx = bx + Math.max(-60, Math.min(60, (target.x - bx) * 0.4));
-      tail = [[bx - 22, by], [tx, by + dir * len], [bx + 22, by]];
+    if (target.y > y + h || target.y < y) {
+      const below = target.y > y + h;
+      const b = 20;
+      const p = clampTo(target.x, x + r + b, x + w - r - b);
+      const len = Math.min(56, Math.abs(target.y - (below ? y + h : y)) * 0.5 + 26);
+      tail = { edge: below ? 'bottom' : 'top', p, b, tx: p + clampTo((target.x - p) * 0.35, -40, 40), ty: below ? y + h + len : y - len };
     } else {
-      const side = target.x > x + w ? x + w : x;
-      const dir = target.x > x + w ? 1 : -1;
-      const ty = Math.max(y + r * 0.6, Math.min(y + h - r * 0.6, target.y));
-      tail = [[side, ty - 20], [side + dir * 60, ty + 26], [side, ty + 20]];
+      const right = target.x > x + w / 2;
+      const b = tailBase(h - 2 * r);
+      const p = clampTo(target.y, y + r + b, y + h - r - b);
+      tail = { edge: right ? 'right' : 'left', p, b, tx: right ? x + w + 44 : x - 44, ty: p + 14 };
     }
   }
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  const path = () => {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y + j());
-    ctx.quadraticCurveTo(x + w / 2, y + j(), x + w - r, y + j());
-    ctx.quadraticCurveTo(x + w + j(), y + j(), x + w + j(), y + h / 2);
-    ctx.quadraticCurveTo(x + w + j(), y + h + j(), x + w - r, y + h + j());
-    ctx.quadraticCurveTo(x + w / 2, y + h + j(), x + r, y + h + j());
-    ctx.quadraticCurveTo(x + j(), y + h + j(), x + j(), y + h / 2);
-    ctx.quadraticCurveTo(x + j(), y + j(), x + r, y + j());
-    ctx.closePath();
-  };
-  ctx.fillStyle = fill; ctx.strokeStyle = ink; ctx.lineWidth = 4.5;
-  if (tail) { ctx.beginPath(); ctx.moveTo(...tail[0]); ctx.lineTo(...tail[1]); ctx.lineTo(...tail[2]); ctx.closePath(); ctx.fill(); ctx.stroke(); }
-  path(); ctx.fill(); ctx.stroke();
-  if (tail) { ctx.strokeStyle = fill; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(tail[0][0] + 4, tail[0][1]); ctx.lineTo(tail[2][0] - 4, tail[2][1]); ctx.stroke(); }
+  paintBubble(ctx, x, y, w, h, r, tail, { fill, ink, lw: 3.5 });
   ctx.fillStyle = '#222222';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  shown.forEach((l, i) => ctx.fillText(l, x + w / 2, y + size * 0.45 + lh * (i + 0.5) + 2));
+  shown.forEach((l, i) => ctx.fillText(l, x + w / 2, y + size * 0.4 + lh * (i + 0.5)));
   ctx.restore();
   return { x, y, w, h };
 }
@@ -1225,7 +1230,7 @@ async function renderToon(ctx, content, { card, st, settings, env, t, fontScale,
   const bg = st.bg || (pastel ? TOON_PASTELS[(index + (content.id || '').length) % TOON_PASTELS.length] : '#FFFFFF');
   const ink = st.textColor || '#141414';
   const accent = st.accent || settings.toonAccent || '#F0506E';
-  const bubbleFill = pastel ? '#FFFFFF' : '#F1F1F1';
+  const bubbleFill = '#FFFFFF';
   ctx.fillStyle = bg; ctx.fillRect(0, 0, SIZE, H);
 
   const total = content.cards.length;
