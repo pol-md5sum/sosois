@@ -38,7 +38,7 @@ export function autoLayout(card) {
 const MOA_DEFAULT = {
   big: { pos: 'br', size: 1.1 }, text: { pos: 'br', size: 0.95 }, list: { pos: 'br', size: 0.7 },
   number: { pos: 'br', size: 0.9 }, compare: { pos: 'br', size: 0.7 }, keyword: { pos: 'br', size: 0.95 },
-  cta: { pos: 'bc', size: 0.68 }, product: { pos: 'br', size: 0.6 }, place: { pos: 'br', size: 0.6 },
+  cta: { pos: 'bc', size: 0.68 }, product: { pos: 'br', size: 0.6 }, place: { pos: 'br', size: 0.6 }, photo: { pos: 'br', size: 0.5 },
 };
 
 // ---------- 폰트 ----------
@@ -346,6 +346,9 @@ function drawBubble(ctx, text, box, t, family, pos) {
 export const tagLabel = (text, settings) => String(text).replace(/^MOA(?=[\s'])/, (settings?.tagPrefix || 'MOA').toUpperCase());
 
 export async function renderCard(canvas, content, index, env) {
+  // 콘텐츠별 캐릭터 넣기/빼기 (없으면 계정 설정을 따름)
+  if (content.showChar === false) env = { ...env, moa: null, poses: {} };
+  else if (content.showChar === true && env.charImg) env = { ...env, moa: env.charImg, poses: env.charPoses || {} };
   const card = content.cards[index];
   const st = { ...(card.style || {}) };
   const settings = env.settings;
@@ -370,6 +373,11 @@ export async function renderCard(canvas, content, index, env) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, SIZE, H);
 
+  // 📍 다녀왔어요: 내 사진을 꽉 채운 사진 카드 (어느 디자인에서도 같은 모양)
+  if (layout === 'photo' && !st.bare) {
+    await renderPhoto(ctx, content, { card, st, settings, env, t, fontScale, index });
+    return canvas;
+  }
   // 덱 전체 디자인: 인스타툰 / 매거진 (선택한 대로 7장 모두 적용)
   const theme = deckTheme(content, settings);
   if (!st.bare && theme !== 'classic') {
@@ -1822,4 +1830,84 @@ async function renderSoft(ctx, content, { card, st, settings, env, t, fontScale,
   const box = charAt(card.body ? 0.22 : 0.32);
   if (box && card.moaSays) comicBubble(ctx, card.moaSays, { cx: box.x - 30, cy: box.y + box.h * 0.18, maxW: 300, size: 40, target: { x: box.x + box.w * 0.4, y: box.y + box.h * 0.3 }, fill: '#FFFFFF' });
   footer();
+}
+
+// ---------------------------------------------------------------------
+// 📍 다녀왔어요 사진 카드 — 내 사진을 화면 가득, 글자는 아래쪽에 크게
+// ---------------------------------------------------------------------
+async function renderPhoto(ctx, content, { card, st, settings, env, t, fontScale, index }) {
+  const T = TOON_FONTS[settings.toonFont] || TOON_FONTS.Pretendard;
+  const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
+  const sample = [...new Set([card.title, card.body, card.moaSays, settings.handle].filter(Boolean).join('').replace(/\s/g, ''))].join('') || '가';
+  try { await Promise.all([document.fonts.load(`700 80px ${T}`, sample), document.fonts.load(`700 40px ${B}`, sample)]); } catch { /* 대체 폰트 */ }
+  const accent = st.accent || settings.toonAccent || '#F0506E';
+  const img = env.bgs?.[`${content.id}:${index}`];
+  const total = content.cards.length;
+  const X = 64;
+  const W = SIZE - X * 2;
+  // 사진 (없으면 안내 화면)
+  if (img) photoIn(ctx, img, 0, 0, SIZE, H, 0);
+  else {
+    ctx.fillStyle = mix(accent, '#FFFFFF', 0.8); ctx.fillRect(0, 0, SIZE, H);
+    ctx.font = `140px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('📷', SIZE / 2, H * 0.36);
+    ctx.font = `700 34px ${B}`; ctx.fillStyle = '#7A6A5A';
+    ctx.fillText('편집기 → "배경 이미지 올리기"로 사진을 넣어 주세요', SIZE / 2, H * 0.36 + 120);
+    ctx.textAlign = 'left';
+  }
+  // 위·아래 그라데이션 (글자가 잘 보이게)
+  let g = ctx.createLinearGradient(0, 0, 0, 260);
+  g.addColorStop(0, 'rgba(0,0,0,0.42)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, 260);
+  const cover = index === 0;
+  const gh = H * (cover ? 0.55 : 0.42);
+  g = ctx.createLinearGradient(0, H - gh, 0, H);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.55, 'rgba(0,0,0,0.38)'); g.addColorStop(1, 'rgba(0,0,0,0.72)');
+  ctx.fillStyle = g; ctx.fillRect(0, H - gh, SIZE, gh);
+
+  // 위: 장소 칩 + 장 번호
+  const place = (cover ? card.body : '') || content.cards.find((c) => c.type === 'PLACE')?.title || '';
+  if (place) softChip(ctx, `📍 ${place}`, X, 54, { bg: 'rgba(255,255,255,0.92)', color: '#1C1C1C', font: B, size: 28, h: 58 });
+  if (!cover) {
+    ctx.font = `800 26px ${B}`;
+    const pg = `${index + 1} / ${total}`;
+    const pw = ctx.measureText(pg).width + 36;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(ctx, SIZE - X - pw, 58, pw, 50, 25); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(pg, SIZE - X - pw / 2, 84); ctx.textAlign = 'left';
+  }
+
+  // 아래: 제목(강조어는 색 띠) + 한마디
+  const text = card.title || '';
+  const max = cover ? 132 : 76;
+  setSpacing(ctx, -Math.round(max * 0.02));
+  const r = fit(ctx, text, { family: T, weight: 700, max: Math.round(max * fontScale), min: cover ? 72 : 46, maxLines: cover ? 3 : 2, widthAt: () => W });
+  ctx.font = `700 ${r.size}px ${T}`;
+  const lh = 1.18;
+  const bodyH = card.body && !cover ? 70 : 0;
+  const top = H - 120 - bodyH - r.lines.length * r.size * lh;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 3;
+  drawRich(ctx, text, r.lines, { x: X, w: W, top, size: r.size, lh, color: '#FFFFFF', accent: '#FFFFFF', flags: keyFlags(text, card.highlight), align: 'left', marker: cover ? accent : mix(accent, '#FFFFFF', 0.1) });
+  ctx.restore();
+  setSpacing(ctx, 0);
+  if (bodyH) {
+    ctx.font = `700 34px ${B}`; ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.textBaseline = 'alphabetic';
+    const rb = fit(ctx, card.body, { family: B, weight: 700, max: 34, min: 26, maxLines: 1, widthAt: () => W });
+    ctx.font = `700 ${rb.size}px ${B}`;
+    ctx.fillText(card.body.slice(rb.lines[0]?.start || 0, rb.lines[0]?.end || card.body.length), X, H - 120 - 14);
+  }
+  // 맨 아래: 계정 · (표지) 넘겨보기
+  ctx.font = `700 26px ${B}`; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(settings.handle, X, H - 52);
+  if (cover) {
+    ctx.textAlign = 'right'; ctx.fillText('넘겨서 보기  →', SIZE - X, H - 52); ctx.textAlign = 'left';
+  }
+  // 캐릭터 스티커 (계정·콘텐츠 설정에 따라)
+  if (st.moaPos !== 'none' && env.moa) {
+    const h = H * (cover ? 0.2 : 0.15) * (st.moaScale || 1);
+    const w = h * (env.moa.naturalWidth / env.moa.naturalHeight);
+    const box = { x: SIZE - w - 30, y: (cover ? top : top) - h - 10, w, h };
+    drawMoa(ctx, env, card, box, t, B);
+    if (cover && card.moaSays) comicBubble(ctx, card.moaSays, { cx: box.x - 120, cy: box.y + h * 0.3, maxW: 280, size: 38, target: { x: box.x + w * 0.35, y: box.y + h * 0.3 }, fill: '#FFFFFF' });
+  }
 }

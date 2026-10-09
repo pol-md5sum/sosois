@@ -1,7 +1,7 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo, RECIPES, templateRecipe,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo, RECIPES, templateRecipe, buildVisitPrompt, templateVisit,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
@@ -199,13 +199,76 @@ async function imageForAI(file) {
   return { mime: 'image/jpeg', data: cv.toDataURL('image/jpeg', 0.85).split(',')[1] };
 }
 
+// 영상 파일에서 장면 하나(앞쪽 30% 지점)를 사진으로 뽑는다
+async function videoFrameBlob(file, at = 0.3) {
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.src = URL.createObjectURL(file);
+  await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('영상을 열 수 없어요.')); });
+  await new Promise((res) => { v.onseeked = res; v.currentTime = Math.min(Math.max(0.5, (v.duration || 2) * at), Math.max(0, (v.duration || 1) - 0.1)); });
+  const w = Math.min(1080, v.videoWidth || 1080);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = Math.round(w * ((v.videoHeight || 1920) / (v.videoWidth || 1080)));
+  cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+  URL.revokeObjectURL(v.src);
+  return new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.9));
+}
+const fileToPhoto = async (f) => (f.type.startsWith('video/') ? videoFrameBlob(f) : shrinkToBlob(URL.createObjectURL(f)));
+
+// 📍 다녀왔어요 카드뉴스: 내 사진(또는 영상 장면) + 메모 → 사진 카드뉴스 (카드뉴스 메뉴·숏폼 메뉴 공용)
+async function createVisit(v, photos, { provider = 'template', showChar } = {}) {
+  const s = getSettings();
+  const pics = photos.filter(Boolean).slice(0, 8);
+  const box = modal(`<div data-busy><h2 style="margin-top:0">${BR().emoji} ${esc(BR().name)}가 사진 보는 중…</h2><p class="small muted">사진 ${pics.length}장으로 "다녀왔어요" 카드뉴스를 만들고 있어요.${provider === 'template' ? '' : ' 보통 20초~1분 걸려요.'}</p></div>`);
+  try {
+    let body;
+    if (provider !== 'template') {
+      const images = [];
+      for (const b of pics) images.push(await imageForAI(b));
+      const text = await callModel(provider, {
+        apiKey: getKeys()[provider], model: s.models[provider], browser: true, schema: CONTENT_SCHEMA, images,
+        system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand, focus: s.focus }),
+        prompt: buildVisitPrompt(v, { handle: s.handle, photos: pics.length }),
+      });
+      body = normalizeContent(extractJson(text), { recipe: 'visit', category: 'OUTING', title: v.place });
+      body.category = (s.topics || TOPIC_KEYS()).includes('OUTING') ? 'OUTING' : (s.topics || TOPIC_KEYS())[0];
+    } else {
+      body = templateVisit(v, { handle: s.handle, photos: pics.length });
+      if (!(s.topics || TOPIC_KEYS()).includes('OUTING')) body.category = (s.topics || TOPIC_KEYS())[0];
+    }
+    body = renameCharacter(body, s.charName, charOf(getActiveProfile()).emoji);
+    const c = {
+      id: newId(), createdAt: new Date().toISOString(), status: 'draft', model: provider,
+      modelName: provider === 'template' ? '템플릿' : s.models[provider], format: s.format || DEFAULT_FORMAT, theme: 'soft',
+      news: { title: v.place || body.title, category: body.category, source: '직접 방문', sources: [] },
+      ...body, recipe: 'visit', ...(showChar === undefined ? {} : { showChar }),
+    };
+    saveContent(c);
+    // 사진 카드에 사진을 순서대로, 장소 카드에는 첫 사진을 넣는다
+    let k = 0;
+    for (let i = 0; i < c.cards.length; i++) {
+      const lay = c.cards[i].layout;
+      if (lay === 'photo' && pics[k]) await putBg(`${c.id}:${i}`, pics[k++]);
+      else if (lay === 'place' && pics[0]) await putBg(`${c.id}:${i}`, pics[0]);
+    }
+    closeModal();
+    void box;
+    toast('"다녀왔어요" 카드뉴스를 만들었어요!');
+    location.hash = `#/editor/${c.id}`;
+    return c;
+  } catch (e) {
+    closeModal(); toast(`만들기 실패: ${e.message}`, true);
+    return null;
+  }
+}
+
 function setDraftNews(n) { sessionStorage.setItem('moa.draftNews', JSON.stringify(n)); }
 function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.draftNews')) || null; } catch { return null; } }
 
 // ---------- 라우터 ----------
 let SHORTS = null;
 const shortsRoute = (arg) => {
-  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc });
+  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit });
   return arg ? SHORTS.editorView(arg) : SHORTS.listView();
 };
 const routes = { dashboard, shorts: shortsRoute, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
@@ -424,6 +487,30 @@ async function createView() {
   view.innerHTML = `
   <h1>✏️ 콘텐츠 만들기</h1>
   <p class="sub">뉴스를 확인하고 AI 모델을 고른 뒤 “자동으로 만들어줘”를 누르세요. 카드 원고·${esc(BR().name)} 포즈·캡션·해시태그가 한 번에 만들어져요.${BR().happy ? ' 해피해피 계정은 육아·아기·생활용품·생활템 관점으로 원고를 써요.' : ''}</p>
+  <section class="panel visit-box">
+    <h3>📍 다녀왔어요 — 내 사진·영상으로 카드뉴스</h3>
+    <p class="small muted" style="margin:0 0 10px">직접 다녀온 곳의 사진·영상을 올리고 대충 메모하면, 사진을 화면 가득 쓴 "다녀왔어요" 카드뉴스를 만들어요. 첫 사진이 표지가 되고, 영상은 장면 하나를 사진으로 뽑아 써요. 숏폼으로 올릴 땐 🎬 숏폼 만들기에서 "📍 다녀왔어요" 컨셉을 고르세요.</p>
+    <div class="two">
+      <div class="field"><label for="v-title">썸네일 제목</label><textarea id="v-title" rows="2">아기랑 여기
+다녀왔어요!</textarea></div>
+      <div class="field"><label for="v-place">장소 이름</label><input type="text" id="v-place" placeholder="예: 키즈랜드 판교점"></div>
+    </div>
+    <div class="two">
+      <div class="field"><label for="v-area">위치</label><input type="text" id="v-area" placeholder="예: 경기 성남 판교"></div>
+      <div class="field"><label for="v-hours">운영 시간</label><input type="text" id="v-hours" placeholder="예: 10:00~20:00 (월 휴무)"></div>
+      <div class="field"><label for="v-fee">요금</label><input type="text" id="v-fee" placeholder="예: 아이 2시간 18,000원"></div>
+      <div class="field"><label for="v-age">추천 나이</label><input type="text" id="v-age" placeholder="예: 12개월~5세"></div>
+    </div>
+    <div class="field"><label for="v-extra">편의시설 (선택)</label><input type="text" id="v-extra" placeholder="예: 주차 2시간 무료 · 수유실 · 유모차 대여"></div>
+    <div class="field"><label for="v-memo">메모 (대충 적어도 돼요)</label><textarea id="v-memo" rows="4" placeholder="예) 평일 오전이라 한산했음. 볼풀이 엄청 큼. 수유실 깨끗함. 2층 카페에서 커피 마시면서 볼 수 있음. 주차는 지하 2시간 무료."></textarea></div>
+    <div class="row">
+      <label class="btn">🖼️ 사진·영상 선택 (최대 8개)<input type="file" id="v-files" accept="image/*,video/*" multiple hidden></label>
+      <label class="small"><input type="checkbox" id="v-char" ${getSettings().showChar !== false ? 'checked' : ''}> ${esc(BR().name)} 캐릭터 넣기</label>
+      <span class="small muted" id="v-count"></span>
+    </div>
+    <div class="visit-thumbs" id="v-thumbs"></div>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="v-ai">✨ AI로 다녀왔어요 카드 만들기</button><button class="btn" id="v-tpl">📄 AI 없이 만들기</button></div>
+  </section>
   <section class="panel url-box">
     <h3>🔗 뉴스 기사 URL로 바로 만들기</h3>
     <p class="small muted" style="margin:0 0 10px">기사 주소를 붙여넣으면 AI가 기사를 직접 읽고 카드뉴스를 만들어요. (Claude·Gemini·GPT 키 필요, 주제는 AI가 판단)</p>
@@ -495,6 +582,29 @@ async function createView() {
     return nn;
   };
   $('#c-intro').addEventListener('click', createIntro);
+  // 📍 다녀왔어요
+  const vPhotos = [];
+  const drawV = () => {
+    $('#v-thumbs').innerHTML = vPhotos.map((b, i) => `<figure><img src="${URL.createObjectURL(b)}" alt="사진 ${i + 1}"><figcaption>${i ? i + 1 : '표지'}</figcaption><button type="button" class="btn sm" data-v-rm="${i}" aria-label="삭제">✕</button></figure>`).join('');
+    $('#v-count').textContent = vPhotos.length ? `${vPhotos.length}개 선택됨` : '';
+    $$('[data-v-rm]').forEach((b) => b.addEventListener('click', () => { vPhotos.splice(+b.dataset.vRm, 1); drawV(); }));
+  };
+  $('#v-files').addEventListener('change', async (e) => {
+    for (const f of [...e.target.files]) {
+      if (vPhotos.length >= 8) break;
+      try { vPhotos.push(await fileToPhoto(f)); } catch { toast(`${f.name}을(를) 읽지 못했어요.`, true); }
+    }
+    e.target.value = ''; drawV();
+  });
+  const visitInput = () => ({ title: $('#v-title').value, place: $('#v-place').value.trim(), area: $('#v-area').value.trim(), hours: $('#v-hours').value.trim(), fee: $('#v-fee').value.trim(), age: $('#v-age').value.trim(), extra: $('#v-extra').value.trim(), memo: $('#v-memo').value.trim() });
+  const runVisit = (mode) => {
+    if (!vPhotos.length) { toast('사진이나 영상을 한 개 이상 올려 주세요.', true); return; }
+    const p = keys[provider] ? provider : availableProviders()[0];
+    if (mode === 'ai' && !p) { toast('AI 키가 없어요. 설정에서 넣거나 "AI 없이 만들기"를 써 주세요.', true); return; }
+    createVisit(visitInput(), vPhotos, { provider: mode === 'ai' ? p : 'template', showChar: $('#v-char').checked });
+  };
+  $('#v-ai').addEventListener('click', () => runVisit('ai'));
+  $('#v-tpl').addEventListener('click', () => runVisit('tpl'));
   // 기사 캡처 이미지 첨부
   const shots = [];
   const drawShots = () => {
@@ -746,7 +856,7 @@ async function runCompare(news, opts) {
 const POS_LABEL = { '': '자동', br: '오른쪽 아래', bl: '왼쪽 아래', bc: '가운데 아래', tr: '오른쪽 위', tl: '왼쪽 위', none: '숨기기' };
 const LAYOUT_LABEL = { auto: '자동', big: '큰 제목', text: '설명형', list: '리스트', number: '큰 숫자', compare: '좌우 비교', keyword: '키워드 강조', cta: 'CTA', product: '추천템 카드', place: '장소 카드' };
 // 카드뉴스 형식 선택 (자동 = 주제에 맞게)
-const recipeSelect = (id, cur = 'auto') => `<select id="${id}" title="카드뉴스 형식"><option value="auto" ${cur === 'auto' ? 'selected' : ''}>✨ 형식: 주제에 맞게 자동</option>${Object.entries(RECIPES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`;
+const recipeSelect = (id, cur = 'auto') => `<select id="${id}" title="카드뉴스 형식"><option value="auto" ${cur === 'auto' ? 'selected' : ''}>✨ 형식: 주제에 맞게 자동</option>${Object.entries(RECIPES).filter(([, v]) => !v.own).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`;
 // 장 순서가 바뀌면 장별 배경 이미지도 같은 장을 따라가게 옮긴다 (order[새 위치] = 예전 위치)
 async function remapBgs(cid, order) {
   const old = await getBgsFor(cid);
@@ -772,6 +882,8 @@ async function editorView(id) {
     <select id="e-cat">${catOptions(c.category)}</select>
     <label class="small" for="e-theme" style="font-weight:700;color:var(--brown)">디자인</label>
     <select id="e-theme">${Object.keys(DECK_THEMES).map((k) => `<option value="${k}" ${k === deckTheme(c, env.settings) ? 'selected' : ''}>${esc(deckThemeLabel(k, BR().name).split(' (')[0])}</option>`).join('')}</select>
+    <label class="small" for="e-char" style="font-weight:700;color:var(--brown)">캐릭터</label>
+    <select id="e-char"><option value="" ${c.showChar === undefined ? 'selected' : ''}>계정 설정 따름</option><option value="on" ${c.showChar === true ? 'selected' : ''}>넣기</option><option value="off" ${c.showChar === false ? 'selected' : ''}>빼기</option></select>
     <label class="small" for="e-format" style="font-weight:700;color:var(--brown)">크기</label>
     <select id="e-format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === c.format ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
@@ -867,7 +979,7 @@ async function editorView(id) {
         <button class="btn sm" id="style-all">이 디자인을 모든 장에 적용</button>
         <button class="btn sm" id="style-reset">디자인 초기화</button>
       </div>
-      <h3 style="margin-top:18px">배경 이미지</h3>
+      <h3 style="margin-top:18px">${lay === 'photo' ? '📷 사진 (이 장에 꽉 차게 들어가요)' : '배경 이미지'}</h3>
       <p class="small muted" style="margin:0 0 8px">${cur === 0 ? '첫 장은 뉴스 주제에 어울리는 배경을 깔면 눈에 잘 띄어요. 제목이 잘 보이도록 위쪽은 자동으로 흐리게 처리돼요.' : '이 장에도 배경 이미지를 넣을 수 있어요.'}</p>
       <div class="row">
         <select id="bg-prov">${Object.entries(IMAGE_PROVIDERS).map(([p, v]) => `<option value="${p}" ${p === env.settings.imageProvider ? 'selected' : ''}>${v.label}${getKeys()[p] ? '' : ' (키 없음)'}</option>`).join('')}</select>
@@ -953,6 +1065,7 @@ async function editorView(id) {
     c.theme = e.target.value; persist(); await drawAll(); await select(cur);
     if (c.theme === 'magazine' && !env.bgs[`${c.id}:0`]) toast('매거진 첫 장은 1장 편집 패널의 "AI 실사 커버 만들기"로 사진 배경을 넣을 수 있어요.');
   });
+  $('#e-char').addEventListener('change', async (e) => { const v = e.target.value; if (v === 'on') c.showChar = true; else if (v === 'off') c.showChar = false; else delete c.showChar; persist(); await drawAll(); await select(cur); });
   $('#e-format').addEventListener('change', async (e) => { c.format = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#e-cat').addEventListener('change', async (e) => { c.category = e.target.value; persist(); await drawAll(); await select(cur); });
   $('#cap').addEventListener('input', (e) => { c.caption = e.target.value; persist(); });

@@ -1,5 +1,5 @@
 // 🎬 숏폼 만들기 — 영상 업로드 → AI 자막·썸네일·캡션 → 캡컷 편집용 묶음 / 자막 입힌 완성 영상
-import { PROVIDERS, callModel, extractJson } from './ai.js';
+import { PROVIDERS, callModel, extractJson, memoLines, visitSpecs } from './ai.js';
 import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShorts, getShort, saveShort, deleteShort, newId, mineOnly } from './store.js';
 
 export const W = 1080;
@@ -126,6 +126,15 @@ function shortsPrompt(p, handle) {
   lines.push('클립(순서대로):');
   p.clips.forEach((c, i) => lines.push(`  ${i}. ${c.name} — 원본 ${c.duration.toFixed(1)}초, 현재 구간 ${(c.in || 0).toFixed(1)}~${(c.out ?? c.duration).toFixed(1)}초`));
   lines.push(`첨부 이미지는 각 클립의 대표 장면이다(순서 동일).`);
+  if (p.concept === 'visit') {
+    const v = p.visit || {};
+    lines.push('');
+    lines.push('[컨셉: 📍 다녀왔어요] 내가 아기랑 직접 다녀온 곳을 소개하는 브이로그형 숏폼이다.');
+    lines.push(`thumbnail.title은 "${(v.title || '아기랑 여기\n다녀왔어요!').replace(/\n/g, '\\n')}"를 그대로 쓰고 highlight는 "다녀왔어요".`);
+    lines.push(`장소: ${v.place || '(이름 없음)'}${visitSpecs(v).map((x) => ` · ${x.k}: ${x.v}`).join('')}`);
+    lines.push('자막: 첫 자막은 "아기랑 ○○ 다녀왔어요!"처럼 장소를 밝히고, 장면마다 후기 한마디, 끝부분에 위치·요금 같은 정보 자막(📍 위치 …), 마지막은 "저장해두고 주말에 가보세요!".');
+    lines.push('정보는 위에 준 것만 쓰고 지어내지 않는다. 캡션에는 장소 정보와 "운영 정보는 방문 전 확인" 한 줄, 해시태그 #아기랑가볼만한곳 #아이랑가볼만한곳 지역가볼만한곳 장소명.');
+  }
   const s = getSettings();
   const emoji = s.focus ? '🧸' : '🐑';
   lines.push(`캡션 팔로우 문구: "${emoji} ${handle} 팔로우하고 ${s.focus ? '육아·살림 꿀정보 받기' : '매일 쉬운 소식 받기'}"`);
@@ -250,6 +259,7 @@ function keywords(text) {
 }
 
 export function templatePlan(p, handle, charName = '모아', { emoji = '🐑', tags = ['릴스', '숏폼'], follow = '매일 쉬운 소식 받기' } = {}) {
+  if (p.concept === 'visit') return templateVisitPlan(p, handle, { emoji });
   const raw = String(p.desc || '').split(/(?<=[.!?。…~])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
   const tone = raw.filter((x) => TONE_RE.test(x));
   const facts = raw.filter((x) => !TONE_RE.test(x));
@@ -286,6 +296,39 @@ export function templatePlan(p, handle, charName = '모아', { emoji = '🐑', t
       naver: { title: oneLine.slice(0, 30), description: points.slice(0, 2).join(' · '), tags: [...kw, '클립'].slice(0, 10) },
     },
     notes: ['AI 없이 규칙으로 만든 초안이에요. 메모를 말투로 바꾸고 훅·정리·팔로우 자막을 붙였지만, 장면을 보고 새 문장을 쓰지는 못해요. 설정에 GPT·Gemini·Claude 중 아무 키 하나만 넣어도 "✨ AI로 만들기"가 영상을 보고 다듬어 줘요.'],
+  };
+}
+
+// 📍 다녀왔어요 숏폼: 상단 제목 "아기랑 여기 다녀왔어요!" + 장면별 후기 + 끝에 장소 정보
+export function templateVisitPlan(p, handle, { emoji = '🧸' } = {}) {
+  const v = p.visit || {};
+  const place = String(v.place || '').trim();
+  const lines = memoLines(p.desc);
+  const specs = visitSpecs(v);
+  const ICON = { 위치: '📍', 운영: '⏰', 요금: '💰', '추천 나이': '👶', 편의시설: '✅' };
+  const texts = [
+    place ? `아기랑 ${place}\n다녀왔어요!` : '아기랑 여기 다녀왔어요!',
+    ...lines.slice(0, 8),
+    ...specs.slice(0, 3).map((x) => `${ICON[x.k] || '•'} ${x.v}`),
+    '저장해두고 주말에 가보세요!',
+  ];
+  const total = totalLen(p) || texts.length * 2.5;
+  const area = (v.area || '').split(/\s+/)[0] || '';
+  const tag = (x) => String(x).replace(/\s+/g, '');
+  const tags = [...new Set(['아기랑가볼만한곳', '아이랑가볼만한곳', area && `${tag(area)}가볼만한곳`, place && tag(place), '주말나들이', '육아맘', '아기랑나들이'].filter(Boolean))];
+  const info = specs.map((x) => `${ICON[x.k] || '•'} ${x.k}: ${x.v}`).join('\n');
+  const title = (v.title || '아기랑 여기\n다녀왔어요!').trim();
+  return {
+    title: place ? `${place} 다녀왔어요` : '다녀왔어요',
+    hook: texts[0].replace('\n', ' '),
+    subtitles: distribute(texts, total).map((sb) => ({ ...sb, hl: sb.text.includes(place) && place ? place : '' })),
+    thumbnail: { title, highlight: '다녀왔어요', clip: 0, time: 1 },
+    captions: {
+      instagram: { text: [`아기랑 ${place || '여기'} 다녀왔어요 📍`, '', ...lines.slice(0, 4), '', info, '※ 운영 정보는 바뀔 수 있으니 방문 전 확인해 주세요.', '', '📌 저장해 두고 주말에 가 보세요', `${emoji} ${handle} 팔로우하고 아기랑 갈 곳 더 보기`].join('\n').replace(/\n{3,}/g, '\n\n'), hashtags: tags },
+      youtube: { title: `아기랑 ${place || '여기'} 다녀왔어요 #Shorts`.slice(0, 100), description: `${lines.slice(0, 2).join(' · ')}\n${info}\n※ 방문 전 운영 정보를 확인해 주세요.`, tags: [...tags, 'Shorts'].slice(0, 10) },
+      naver: { title: `아기랑 ${place || '여기'} 다녀왔어요`.slice(0, 30), description: `${lines.slice(0, 2).join(' · ')}\n${info}`, tags: tags.slice(0, 10) },
+    },
+    notes: lines.length ? [] : ['메모가 비어 있어요. 장면마다 넣을 후기를 ②에 적으면 자막이 채워져요.'],
   };
 }
 
@@ -710,7 +753,7 @@ export function guideText(p, { cutHasTitle = false } = {}) {
 // 화면
 // =====================================================================
 export function createShortsViews(ui) {
-  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc } = ui;
+  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit } = ui;
 
   async function readMeta(file) {
     const v = await loadVideoEl(file);
@@ -803,6 +846,19 @@ export function createShortsViews(ui) {
         </section>
         <section class="panel" style="margin-top:14px">
           <h3>② 어떤 영상인가요?</h3>
+          <div class="field"><label for="sh-concept">컨셉</label><select id="sh-concept"><option value="" ${p.concept !== 'visit' ? 'selected' : ''}>일반 (설명·리뷰·정보)</option><option value="visit" ${p.concept === 'visit' ? 'selected' : ''}>📍 다녀왔어요 (내가 다녀온 곳 소개)</option></select></div>
+          <div id="sh-visit" class="visit-fields" style="${p.concept === 'visit' ? '' : 'display:none'}">
+            <div class="two">
+              <div class="field"><label>썸네일 제목</label><textarea data-v="title" rows="2">${esc(p.visit?.title || '아기랑 여기\n다녀왔어요!')}</textarea></div>
+              <div class="field"><label>장소 이름</label><input type="text" data-v="place" value="${esc(p.visit?.place || '')}" placeholder="예: 키즈랜드 판교점"></div>
+              <div class="field"><label>위치</label><input type="text" data-v="area" value="${esc(p.visit?.area || '')}" placeholder="예: 경기 성남 판교"></div>
+              <div class="field"><label>운영 시간</label><input type="text" data-v="hours" value="${esc(p.visit?.hours || '')}"></div>
+              <div class="field"><label>요금</label><input type="text" data-v="fee" value="${esc(p.visit?.fee || '')}"></div>
+              <div class="field"><label>추천 나이</label><input type="text" data-v="age" value="${esc(p.visit?.age || '')}"></div>
+            </div>
+            <div class="field"><label>편의시설 (선택)</label><input type="text" data-v="extra" value="${esc(p.visit?.extra || '')}" placeholder="예: 주차 2시간 무료 · 수유실"></div>
+            <button class="btn sm" id="sh-tocards">📸 이 영상 장면으로 "다녀왔어요" 카드뉴스도 만들기</button>
+          </div>
           <div class="field"><label for="sh-desc">영상 설명 · 자막에 넣고 싶은 내용 (대충 적어도 AI가 다듬어요)</label>
             <textarea id="sh-desc" rows="5" placeholder="${s.focus ? '예) 8개월 아기 단호박 이유식 만들기. 단호박 푹 쪄서 곱게 으깸. 쌀미음이랑 1:1로 섞음. 아기가 완전 잘 먹음. 다정하게.' : '예) 성수동 새로 생긴 카페 딸기라떼 리뷰. 크림이 엄청 두껍고 딸기가 통째로 들어감. 가격 6,500원. 웨이팅 20분. 귀엽고 발랄하게.'}">${esc(p.desc)}</textarea></div>
           <div class="two">
@@ -1088,6 +1144,34 @@ export function createShortsViews(ui) {
     // ---------- 입력 ----------
     $('#sh-title').addEventListener('input', (e) => { p.title = e.target.value; persist(); });
     $('#sh-desc').addEventListener('input', (e) => { p.desc = e.target.value; persist(); });
+    $('#sh-concept').addEventListener('change', (e) => {
+      p.concept = e.target.value || undefined;
+      $('#sh-visit').style.display = p.concept === 'visit' ? '' : 'none';
+      if (p.concept === 'visit') {
+        p.visit = p.visit || { title: '아기랑 여기\n다녀왔어요!' };
+        p.thumb = { ...(p.thumb || { clip: 0, time: 1 }), title: p.visit.title, highlight: '다녀왔어요' };
+        fillThumbFields(); drawThumb();
+      }
+      persist();
+    });
+    $$('[data-v]').forEach((el) => el.addEventListener('input', () => {
+      p.visit = { ...(p.visit || {}), [el.dataset.v]: el.value };
+      if (el.dataset.v === 'title') { p.thumb = { ...(p.thumb || { clip: 0, time: 1 }), title: el.value, highlight: p.thumb?.highlight || '다녀왔어요' }; fillThumbFields(); drawThumb(); }
+      persist();
+    }));
+    // 숏폼 클립 장면(각 클립 가운데)을 사진으로 뽑아 카드뉴스로
+    $('#sh-tocards').addEventListener('click', async () => {
+      if (!createVisit) { toast('카드뉴스 만들기를 쓸 수 없어요.', true); return; }
+      if (!p.clips.length) { toast('클립을 먼저 올려 주세요.', true); return; }
+      const shots = [];
+      for (let i = 0; i < p.clips.length && shots.length < 8; i++) {
+        const c = p.clips[i];
+        const cv = await frameAt(vids[i], ((c.in || 0) + (c.out ?? c.duration)) / 2, 1080);
+        shots.push(await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.9)));
+      }
+      const prov = $('#sh-prov').value;
+      createVisit({ ...(p.visit || {}), memo: p.desc }, shots, { provider: getKeys()[prov] ? prov : 'template' });
+    });
     $('#sh-target').addEventListener('change', (e) => { p.target = +e.target.value; persist(); });
     $('#sh-motion').addEventListener('change', (e) => { p.motion = e.target.checked; persist(); previewAt(curT); });
     $('#sh-charthumb').addEventListener('change', (e) => { p.charThumb = e.target.checked; persist(); drawThumb(); });
@@ -1129,7 +1213,7 @@ export function createShortsViews(ui) {
     const tplOpts = () => (s.focus ? { emoji: '🧸', tags: ['육아', '육아템', '아기', '육아맘', '살림템'], follow: '육아·살림 꿀정보 받기' } : {});
     const runPlan = async (mode) => {
       if (!p.clips.length) { toast('클립을 먼저 올려 주세요.', true); return; }
-      if (!p.desc.trim()) { toast('어떤 영상인지 간단히 적어 주세요.', true); return; }
+      if (!p.desc.trim() && p.concept !== 'visit') { toast('어떤 영상인지 간단히 적어 주세요.', true); return; }
       const prov = $('#sh-prov').value;
       if (mode === 'ai' && !getKeys()[prov]) { toast(`${PROVIDERS[prov].label} API 키가 없어요. 설정에서 넣거나 "AI 없이 만들기"를 써 주세요.`, true); return; }
       const box = modal(`<div data-busy><h2 style="margin-top:0">${s.focus ? '🧸' : '🐑'} ${esc(s.charName)}가 영상 보는 중…</h2><p class="small muted">장면을 보고 자막·썸네일·캡션을 만들고 있어요. 보통 20초~1분 걸려요.</p></div>`);

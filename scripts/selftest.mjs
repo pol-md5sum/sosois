@@ -159,4 +159,18 @@ for (const r of ['items', 'place', 'guide']) {
 assert.ok(AI2.buildContentPrompt({ title: 't', recipe: 'items', category: 'ITEM' }).includes('추천템'));
 assert.equal(FN.classifyHappy('주말 아이와 가볼만한 키즈카페 테마파크', 'PARENTING'), 'OUTING');
 assert.ok(AI2.HAPPY_TOPICS.includes('OUTING'));
+// 📍 다녀왔어요
+assert.deepEqual(AI2.memoLines('볼풀이 엄청 큼. 수유실 있음\n주차 무료'), ['볼풀이 엄청 커요', '수유실 있어요', '주차 무료']);
+const tv = AI2.templateVisit({ place: '키즈랜드', area: '경기 성남', fee: '18,000원', memo: '한산했음. 볼풀 큼. 주차 팁: 지하 무료' }, { handle: '@h', photos: 4 });
+assert.deepEqual(tv.cards.map((x) => x.layout), ['photo', 'photo', 'photo', 'photo', 'place', 'list', 'cta']);
+assert.equal(tv.cards[0].title, '아기랑 여기\n다녀왔어요!');
+assert.ok(tv.cards[4].specs.some((x) => x.k === '요금' && x.v === '18,000원'));
+assert.ok(tv.caption.includes('방문 전 확인') && tv.hashtags.includes('경기가볼만한곳'));
+assert.ok(AI2.buildVisitPrompt({ place: '키즈랜드' }, { photos: 3 }).includes('사진 3장'));
+const nv = AI2.normalizeContent({ cards: [{ type: 'HOOK', layout: 'photo', title: 't' }, { type: 'WHAT', layout: 'photo' }, { type: 'CTA' }] }, { recipe: 'visit' });
+assert.deepEqual(nv.cards.map((x) => x.layout), ['photo', 'photo', 'auto', 'auto'], '형식 카드는 최소 4장으로 채움');
+const vp = SH.templateVisitPlan({ clips: [{ duration: 10, in: 0, out: 10 }], desc: '평일이라 한산했음. 볼풀 큼', visit: { place: '키즈랜드', fee: '18,000원' } }, '@h');
+assert.equal(vp.thumbnail.title, '아기랑 여기\n다녀왔어요!');
+assert.ok(vp.subtitles[0].text.includes('키즈랜드') && vp.subtitles.some((x) => x.text.includes('18,000원')));
+assert.ok(vp.subtitles.at(-1).end <= 10);
 console.log('profile selftest OK');

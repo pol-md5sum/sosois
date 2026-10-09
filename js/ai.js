@@ -124,6 +124,7 @@ export const RECIPES = {
 ITEM 카드: title=아이템 이름(짧게), body=한 줄 추천 포인트, highlight=핵심 장점 단어, specs=[{k:"가격대",v:"…"},{k:"추천 대상",v:"…"},{k:"포인트",v:"…"}] (2~4개), emoji=아이템을 나타내는 이모지 1개.` },
   place: { label: '🎡 아기랑 가볼 곳', plan: `카드 7~8장: 1 HOOK(표지) → 2~5 PLACE 4장(layout "place", 한 장에 장소 하나) → LIFE/CHECK(준비물·주의할 점, kind "checklist") → CTA. 장소가 적으면 PLACE를 2~3장으로 줄인다.
 PLACE 카드: title=장소 이름, body=한 줄 꿀팁, highlight=추천 이유 단어, specs=[{k:"위치",v:"…"},{k:"운영",v:"…"},{k:"요금",v:"…"},{k:"추천 나이",v:"…"}] (확인된 것만 2~4개), emoji=장소 이모지 1개.` },
+  visit: { label: '📍 다녀왔어요 (내 사진·영상)', plan: '', own: true },
   guide: { label: '👶 육아 정보 (단계별)', plan: `카드 6~7장: 1 HOOK(표지) → 2 WHAT(무엇·누구 대상) → 3~5 STEP 3장(layout "list" 또는 "text", 순서대로 따라 하는 방법·신청 절차) → LIFE/CHECK(체크리스트) → CTA.` },
 };
 
@@ -160,7 +161,7 @@ export const PRACTICAL_KINDS = {
   related: { label: '관련 보도', title: '다른 데선 이렇게 봤어', tag: 'MORE' },
 };
 
-export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta', 'product', 'place'];
+export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta', 'product', 'place', 'photo'];
 
 const str = { type: 'string' };
 const CARD_SCHEMA = {
@@ -778,6 +779,68 @@ export function templateRecipe(news, recipe, { handle = '@moa.story' } = {}) {
     ];
   }
   return { ...base, recipe, cards: [hook, ...mid, cta], factNotes: ['AI 없이 만든 형식 틀이에요. 아이템·장소·단계 내용을 직접 채워 주세요("확인 필요" 부분).', ...(base.factNotes || [])] };
+}
+
+// ---------- 📍 다녀왔어요: 내가 다녀온 곳을 내 사진·영상으로 소개 ----------
+const memoSpeak = (t) => String(t).trim().replace(/[.。]+$/, '')
+  .replace(/있음$/, '있어요').replace(/없음$/, '없어요').replace(/좋음$/, '좋아요').replace(/많음$/, '많아요')
+  .replace(/큼$/, '커요').replace(/했음$/, '했어요').replace(/됨$/, '돼요').replace(/함$/, '해요').replace(/감$/, '가요').replace(/([가-힣])임$/, '$1이에요');
+export const memoLines = (memo) => String(memo || '').split(/(?<=[.!?。~])\s+|\n+/).map((x) => memoSpeak(x)).filter((x) => x.length > 1);
+export const visitSpecs = (v = {}) => [['위치', v.area], ['운영', v.hours], ['요금', v.fee], ['추천 나이', v.age], ['편의시설', v.extra]]
+  .filter(([, x]) => String(x || '').trim()).map(([k, x]) => ({ k, v: String(x).trim().slice(0, 40) }));
+const visitTitle = (v) => (v.title || '아기랑 여기\n다녀왔어요!').trim();
+
+export function buildVisitPrompt(v, { handle = '', photos = 0 } = {}) {
+  const L = [];
+  L.push('내가 아기랑 직접 다녀온 곳을 내 사진으로 소개하는 "다녀왔어요" 카드뉴스를 만들어 줘.');
+  L.push(`표지 제목(썸네일): ${visitTitle(v).replace(/\n/g, ' / ')} — 이 문구를 거의 그대로 쓰고 줄바꿈만 다듬는다.`);
+  L.push(`장소: ${v.place || '(이름 없음)'}`);
+  visitSpecs(v).forEach((x) => L.push(`${x.k}: ${x.v}`));
+  L.push(`내 메모(대충 적은 후기): ${v.memo || '(없음)'}`);
+  L.push(`첨부 사진 ${photos}장은 내가 찍은 사진이다(순서대로). 사진 속 장면을 보고 설명을 쓰되, 사진에 없는 사실은 만들지 않는다.`);
+  L.push('');
+  L.push(`[형식] 카드 ${photos + 3}장 이내:`);
+  L.push(`- 1장 HOOK: layout "photo", title=표지 제목, body=장소 이름, highlight="다녀왔어요" 또는 장소 이름, moaSays=짧은 감탄.`);
+  L.push(`- 2~${Math.max(2, photos)}장 WHAT: layout "photo", 사진 한 장당 카드 하나(사진 2번부터 순서대로). title=그 사진 장면을 말하듯 짧게(18자 안팎, 1~2줄), body=덧붙일 한마디(30자 이내, 없으면 "").`);
+  L.push('- 그다음 PLACE: layout "place", title=장소 이름, specs=위에 준 위치·운영·요금·추천 나이·편의시설만(없는 건 빼기), body=내 메모에서 뽑은 꿀팁 한 줄, emoji=장소 이모지.');
+  L.push('- 그다음 LIFE/CHECK: layout "list", kind "checklist", title="가기 전 체크!", items=메모에 나온 팁과 아기 동반 준비물(3~4개).');
+  L.push('- 마지막 CTA: layout "cta".');
+  L.push('말투는 직접 다녀온 엄마·아빠의 다정한 후기체(~했어요, ~좋아요). 광고처럼 쓰지 않는다. 운영 정보는 바뀔 수 있으니 캡션에 "방문 전 확인"을 한 줄 넣는다.');
+  L.push(`캡션: "아기랑 ${v.place || '여기'} 다녀왔어요" 느낌의 첫 줄 → 후기 2~4줄 → 장소 정보(📍 위치 등) → 저장·공유 유도 → "${handle} 팔로우" 문구. 해시태그는 #아기랑가볼만한곳 #아이랑가볼만한곳 지역+가볼만한곳 장소명 등 5~15개(# 없이).`);
+  L.push('category는 OUTING.');
+  return L.join('\n');
+}
+
+export function templateVisit(v, { handle = '@moa.story', photos = 1 } = {}) {
+  const lines = memoLines(v.memo);
+  const place = String(v.place || '').trim() || '우리가 다녀온 곳';
+  const blank = { body: '', highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' }, layout: 'photo', pose: 'default', moaSays: '', kind: 'none', specs: [], emoji: '', style: {} };
+  const card = (type, o) => ({ ...blank, type, pose: DEFAULT_POSE[type] || 'default', ...o });
+  const shots = Math.max(0, Math.min(6, photos - 1));
+  const photoCards = Array.from({ length: shots }, (_, i) => card('WHAT', { title: lines[i] || `${i + 2}번째 사진 이야기를 적어 주세요`, layout: 'photo' }));
+  const tips = lines.filter((x) => /팁|추천|꼭|주의|미리|챙기|예약|주차|수유|유모차/.test(x)).slice(0, 2);
+  const specs = visitSpecs(v);
+  const area = (v.area || '').split(/\s+/)[0] || '';
+  const tag = (x) => String(x).replace(/\s+/g, '');
+  return {
+    title: `${place} 다녀왔어요`,
+    category: 'OUTING',
+    recipe: 'visit',
+    hook: visitTitle(v).replace(/\n/g, ' '),
+    cards: [
+      card('HOOK', { title: visitTitle(v), body: place, highlight: '다녀왔어요', moaSays: '여기 좋아요!' }),
+      ...photoCards,
+      card('PLACE', { title: place, layout: 'place', specs: specs.length ? specs : [{ k: '위치', v: '입력해 주세요' }], body: tips[0] || lines[lines.length - 1] || '한 줄 꿀팁을 적어 주세요', emoji: '📍' }),
+      card('LIFE/CHECK', { title: '가기 전 체크!', layout: 'list', kind: 'checklist', items: [...tips, '운영 시간·휴무일 미리 확인', '여벌 옷·물티슈 챙기기', '수유실·유모차 대여 확인'].slice(0, 4) }),
+      card('CTA', { title: '주말에 가 보세요!\n저장해 두기', layout: 'cta', body: '다녀온 곳만 솔직하게 소개해요', moaSays: '또 만나요!' }),
+    ],
+    moaComment: '',
+    cta: '저장해 두고 주말에 가 보세요',
+    caption: [`아기랑 ${place} 다녀왔어요 📍`, '', ...lines.slice(0, 4), '', ...specs.map((x) => `${x.k === '위치' ? '📍' : x.k === '운영' ? '⏰' : x.k === '요금' ? '💰' : x.k === '추천 나이' ? '👶' : '✅'} ${x.k}: ${x.v}`), '※ 운영 정보는 바뀔 수 있으니 방문 전 확인해 주세요.', '', '📌 저장해 두고 주말에 가 보세요', '💬 같이 갈 사람 태그하기', `${handle} 팔로우하고 아기랑 갈 곳 더 보기`].join('\n').replace(/\n{3,}/g, '\n\n'),
+    hashtags: [...new Set(['아기랑가볼만한곳', '아이랑가볼만한곳', area && `${tag(area)}가볼만한곳`, tag(place), '주말나들이', '육아맘', '아기랑나들이'].filter(Boolean))].slice(0, 12),
+    sources: [],
+    factNotes: lines.length ? [] : ['메모가 비어 있어 사진 카드 문구를 직접 채워 주세요.'],
+  };
 }
 
 export function introContentHappy() {
