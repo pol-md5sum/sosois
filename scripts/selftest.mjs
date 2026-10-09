@@ -87,4 +87,31 @@ assert.ok(rich.thumbnail.title.includes('후기'));
 assert.ok(rich.subtitles.at(-1).end <= 30);
 assert.ok(SH.titleSrt({ clips: [{ duration: 8, in: 0, out: 8 }], thumb: { title: '제목\n둘째 줄' } }).includes('00:00:00,000 --> 00:00:08,000\n제목\n둘째 줄'));
 assert.ok(Object.values(SH.PLATFORMS).every((pf) => pf.w === 1080 && pf.h === 1920));
+const ar = { target: 10, clips: [{ name: 'b', mtime: 20, duration: 12, in: 1, out: 5, zoom: 2 }, { name: 'a', mtime: 10, duration: 8, in: 0, out: 8 }] };
+assert.deepEqual(SH.autoArrange(ar), [1, 0], '촬영 순서로 정렬');
+assert.equal(ar.clips[0].name, 'a');
+assert.ok(Math.abs(SH.totalLen(ar) - 10) < 0.05, `목표 길이에 맞춤: ${SH.totalLen(ar)}`);
+assert.ok(ar.clips.every((c) => c.zoom === 1 && c.in >= 0 && c.out <= c.duration));
+assert.equal(SH.textOf({ subPos: 'lower' }, 'sub').y, 60, '예전 위치 설정 반영');
+assert.equal(SH.textOf({ text: { sub: { size: 70 } } }, 'sub').size, 70);
+assert.equal(SH.fitOf({ fit: 'auto' }, { w: 1920, h: 1080 }), 'blur');
+assert.equal(SH.fitOf({ fit: 'auto' }, { w: 1080, h: 1920 }), 'cover');
+assert.equal(SH.fitOf({ fit: 'auto' }, { w: 1080, h: 1920, fit: 'contain' }), 'contain');
+assert.ok(SH.templatePlan(proj, '@h', '해피해피').captions.instagram.hashtags.includes('해피해피'));
 console.log('shorts selftest OK');
+
+// ---------- 계정 ----------
+const AI2 = await import('../js/ai.js');
+const sys2 = AI2.personaSystem(AI2.SYSTEM_PROMPT, { charName: '해피해피', charDesc: '아기 곰 캐릭터', brand: '해피해피' });
+assert.ok(sys2.includes('"해피해피"') && sys2.includes('해피해피는 아기 곰 캐릭터이자') && !sys2.includes('모아'));
+assert.equal(AI2.personaSystem(AI2.SYSTEM_PROMPT, { charName: '모아', brand: 'MOA | 모아' }), AI2.SYSTEM_PROMPT);
+const rn = AI2.renameCharacter({ cards: [{ type: "MOA'S PICK", title: '모아의 PICK', category: 'MOA' }] }, '해피해피');
+assert.equal(rn.cards[0].type, "MOA'S PICK");
+assert.equal(rn.cards[0].title, '해피해피의 PICK');
+const R = await import('../js/render.js').catch(() => null);
+if (R) {
+  assert.equal(R.tagLabel('MOA NEWS', { tagPrefix: 'happy' }), 'HAPPY NEWS');
+  assert.equal(R.tagLabel("MOA'S PICK", { tagPrefix: 'HAPPY' }), "HAPPY'S PICK");
+  assert.equal(R.tagLabel('WHAT', { tagPrefix: 'HAPPY' }), 'WHAT');
+}
+console.log('profile selftest OK');

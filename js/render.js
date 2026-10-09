@@ -342,6 +342,9 @@ function drawBubble(ctx, text, box, t, family, pos) {
 }
 
 // ---------- 메인 렌더 ----------
+// 카드에 찍히는 "MOA NEWS", "MOA'S PICK" 같은 표기를 계정 접두어로 바꾼다 (예: HAPPY NEWS)
+export const tagLabel = (text, settings) => String(text).replace(/^MOA(?=[\s'])/, (settings?.tagPrefix || 'MOA').toUpperCase());
+
 export async function renderCard(canvas, content, index, env) {
   const card = content.cards[index];
   const st = { ...(card.style || {}) };
@@ -414,7 +417,7 @@ export async function renderCard(canvas, content, index, env) {
   // 헤더: 카테고리 + 페이지
   const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
   ctx.font = `800 30px ${family}`;
-  const catText = cat.label;
+  const catText = tagLabel(cat.label, settings);
   const cw = ctx.measureText(catText).width + 48;
   // 주제별 색 (뉴스는 브랜드 브라운)
   const catColor = content.category === 'NEWS' || !cat.color ? t.brown : cat.color;
@@ -448,7 +451,7 @@ export async function renderCard(canvas, content, index, env) {
 
   const ctxText = { family, t, textColor, fontScale, span };
   let y = 170;
-  const label = card.type === "MOA'S PICK" ? "MOA'S PICK" : card.type;
+  const label = tagLabel(card.type, settings);
   if (layout !== 'big' && layout !== 'cta' && !st.hideLabel) y = drawLabel(ctx, label, y, ctxText);
 
   const L = { big: layBig, text: layText, list: layList, number: layNumber, compare: layCompare, keyword: layKeyword, cta: layCta }[layout] || layText;
@@ -1366,7 +1369,7 @@ async function renderMagazine(ctx, content, { card, st, settings, env, t, fontSc
   const cat = CATEGORIES[content.category] || CATEGORIES.NEWS;
   setSpacing(ctx, 4);
   ctx.font = `800 22px ${F}`; ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
-  ctx.fillText(`MOA MAGAZINE  ·  ${cat.label.replace('MOA ', '')}`, X, 82);
+  ctx.fillText(`${tagLabel('MOA MAGAZINE', settings)}  ·  ${cat.label.replace('MOA ', '')}`, X, 82);
   ctx.textAlign = 'right'; ctx.fillText(`${String(index + 1).padStart(2, '0')} — ${String(total).padStart(2, '0')}`, X + W, 82); ctx.textAlign = 'left';
   setSpacing(ctx, 0);
   ctx.fillStyle = ink; ctx.fillRect(X, 102, W, 3);
@@ -1386,7 +1389,7 @@ async function renderMagazine(ctx, content, { card, st, settings, env, t, fontSc
   // 섹션 라벨
   let y = 150;
   const kindTag = { checklist: 'CHECK', timeline: 'TIMELINE', howto: 'HOW TO', numbers: 'NUMBERS', qa: 'Q&A', glossary: 'WORDS', proscons: 'VIEWS', related: 'MORE' }[card.kind];
-  const label = kindTag || { HOOK: 'INTRO', WHAT: 'WHAT', WHY: 'WHY', 'SO WHAT': 'SO WHAT', "MOA'S PICK": "MOA'S PICK", 'LIFE/CHECK': 'CHECK', CTA: 'FOLLOW' }[card.type] || card.type;
+  const label = tagLabel(kindTag || { HOOK: 'INTRO', WHAT: 'WHAT', WHY: 'WHY', 'SO WHAT': 'SO WHAT', "MOA'S PICK": "MOA'S PICK", 'LIFE/CHECK': 'CHECK', CTA: 'FOLLOW' }[card.type] || card.type, settings);
   setSpacing(ctx, 3);
   ctx.font = `900 26px ${F}`; ctx.fillStyle = ink;
   const lw = ctx.measureText(label).width;

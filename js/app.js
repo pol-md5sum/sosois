@@ -1,12 +1,12 @@
 import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
-  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS,
+  introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter,
 } from './ai.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
-  putBg, deleteBg, getBgsFor,
+  putBg, deleteBg, getBgsFor, listProfiles, getActiveProfile, setActiveProfile, saveProfile, deleteProfile, CHARACTERS, charOf, charNameOf, poseKey, mineOnly, profileOfItem,
 } from './store.js';
 import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS } from './render.js';
 
@@ -79,17 +79,61 @@ function setCatOverride(n, cat) {
 const catSelect = (cur, attrs) => `<select class="cat-select" ${attrs} aria-label="주제 변경">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v.emoji} ${esc(v.label)}</option>`).join('')}</select>`;
 const findNews = (id) => NEWS?.items.find((n) => n.id === id);
 
+// 렌더 환경: 현재 계정의 캐릭터(기본 이미지 + 포즈)와 설정
 let ENV = null;
 async function renderEnv(force = false) {
-  if (ENV && !force) { ENV.settings = getSettings(); return ENV; }
-  const moa = await loadImage('assets/moa/moa.png').catch(() => null);
-  const poses = {};
+  const prof = getActiveProfile();
+  if (ENV && !force && ENV.profileId === prof.id) { ENV.settings = getSettings(); applyCharToggle(ENV); return ENV; }
+  const ch = charOf(prof);
   const stored = await getAllPoses();
-  for (const [k, blob] of Object.entries(stored)) {
-    try { poses[k] = await loadImage(URL.createObjectURL(blob)); } catch { /* 무시 */ }
+  const blobImg = async (b) => { try { return await loadImage(URL.createObjectURL(b)); } catch { return null; } };
+  let base = ch.base ? await loadImage(ch.base).catch(() => null) : null;
+  if (stored[poseKey(prof.id, 'base')]) base = (await blobImg(stored[poseKey(prof.id, 'base')])) || base;
+  const poses = {};
+  // 내장 포즈 세트(해피해피 등)
+  if (ch.poses) {
+    await Promise.all(Object.keys(POSES).map(async (k) => { const im = await loadImage(`${ch.poses}${k}.${ch.ext || 'png'}`).catch(() => null); if (im) poses[k] = im; }));
   }
-  ENV = { moa, poses, settings: getSettings() };
+  // 사용자가 올린 포즈가 우선
+  for (const k of Object.keys(POSES)) {
+    const b = stored[poseKey(prof.id, k)];
+    if (b) { const im = await blobImg(b); if (im) poses[k] = im; }
+  }
+  ENV = { profileId: prof.id, charImg: base, charPoses: poses, charName: charNameOf(prof), settings: getSettings() };
+  applyCharToggle(ENV);
   return ENV;
+}
+// 카드뉴스에 캐릭터를 넣지 않는 계정이면 렌더러에 캐릭터를 넘기지 않는다
+function applyCharToggle(env) {
+  const on = env.settings.showChar !== false;
+  env.moa = on ? env.charImg : null;
+  env.poses = on ? env.charPoses : {};
+}
+const charSrc = () => { const p = getActiveProfile(); return charOf(p).base || 'assets/moa/moa.png'; };
+// 다른 계정의 콘텐츠를 열면 그 계정으로 전환한다
+function ensureProfileFor(item) {
+  const pid = profileOfItem(item);
+  if (pid === getActiveProfile().id || !listProfiles().some((p) => p.id === pid)) return false;
+  setActiveProfile(pid); drawProfileSwitch();
+  toast(`${listProfiles().find((p) => p.id === pid).name} 계정으로 전환했어요.`);
+  return true;
+}
+// 사이드바 계정 전환
+function drawProfileSwitch() {
+  const prof = getActiveProfile();
+  const box = $('#profile-switch');
+  if (!box) return;
+  box.innerHTML = `<img src="${esc(charOf(prof).base || 'assets/moa/moa.png')}" alt="" width="34" height="38" id="ps-img">
+    <select id="ps-sel" aria-label="계정 전환">${listProfiles().map((p) => `<option value="${esc(p.id)}" ${p.id === prof.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new">+ 새 계정 추가</option></select>`;
+  $('#ps-sel').addEventListener('change', (e) => {
+    if (e.target.value === '__new') { location.hash = '#/settings/new'; drawProfileSwitch(); return; }
+    setActiveProfile(e.target.value); ENV = null; drawProfileSwitch();
+    toast(`${getActiveProfile().name} 계정으로 바꿨어요.`);
+    route();
+  });
+  const custom = prof.char === 'custom';
+  if (custom) getAllPoses().then((st) => { const b = st[poseKey(prof.id, 'base')]; if (b) $('#ps-img').src = URL.createObjectURL(b); });
+  document.documentElement.style.setProperty('--accent-profile', prof.toonAccent || '#F0506E');
 }
 
 // 카드 배경 이미지 (콘텐츠별)
@@ -130,7 +174,7 @@ function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.dr
 // ---------- 라우터 ----------
 let SHORTS = null;
 const shortsRoute = (arg) => {
-  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName });
+  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc });
   return arg ? SHORTS.editorView(arg) : SHORTS.listView();
 };
 const routes = { dashboard, shorts: shortsRoute, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
@@ -186,7 +230,7 @@ function bindMake(root) {
 // ---------- 대시보드 ----------
 async function dashboard() {
   const data = await loadNews();
-  const contents = listContents();
+  const contents = mineOnly(listContents());
   const cnt = (s) => contents.filter((c) => c.status === s).length;
   const top = pickTop(data.items, 3);
   const keys = availableProviders();
@@ -201,7 +245,7 @@ async function dashboard() {
         <button class="btn big pink" id="intro">🐑 첫 게시물 (모아 소개)</button>
       </div>
     </div>
-    <img src="assets/moa/moa.png" alt="모아 캐릭터" class="bounce">
+    <img src="${esc(charSrc())}" alt="캐릭터" class="bounce">
   </section>
   <div class="stats">
     <div class="stat"><b>${data.items.length}</b><span class="small muted">오늘 수집한 뉴스</span></div>
@@ -230,7 +274,7 @@ async function dashboard() {
 }
 
 function emptyNews(data) {
-  return `<div class="panel empty"><img src="assets/moa/moa.png" alt=""><p>아직 수집된 뉴스가 없어요.<br>${esc((data.errors || []).join(' / '))}</p>
+  return `<div class="panel empty"><img src="${esc(charSrc())}" alt=""><p>아직 수집된 뉴스가 없어요.<br>${esc((data.errors || []).join(' / '))}</p>
     <p class="small">뉴스는 GitHub Actions가 3시간마다 자동으로 모아요. 지금 바로 만들려면 <a href="#/create">직접 입력</a>해 주세요.</p></div>`;
 }
 
@@ -280,7 +324,7 @@ async function topicsView(cat) {
   const key = CATEGORIES[cat] && !CATEGORIES[cat].hidden ? cat : 'NEWS';
   const c = CATEGORIES[key];
   const items = data.items.filter((n) => n.category === key).sort((a, b) => b.moaScore - a.moaScore);
-  const mine = listContents().filter((x) => x.category === key);
+  const mine = mineOnly(listContents()).filter((x) => x.category === key);
   view.innerHTML = `
   <h1>🧺 주제별 콘텐츠</h1>
   <p class="sub">기획안의 MOA 카테고리별로 오늘의 뉴스를 모아 보고, 주제에 맞는 톤으로 카드뉴스를 만들어요.</p>
@@ -297,7 +341,7 @@ async function topicsView(cat) {
   </section>
   ${mine.length ? `<h2>내 ${esc(c.name)} 콘텐츠 (${mine.length})</h2><div class="row">${mine.slice(0, 8).map((x) => `<a class="chip" href="#/editor/${x.id}">${esc(x.title.slice(0, 28))} · ${esc(STATUSES[x.status])}</a>`).join('')}</div>` : ''}
   <h2>${esc(c.name)} 뉴스 ${items.length}건</h2>
-  ${items.length ? `<div class="grid">${items.map(newsCard).join('')}</div>` : `<div class="panel empty"><img src="assets/moa/moa.png" alt=""><p>오늘 이 주제로 수집된 뉴스가 없어요. 다음 수집(3시간마다)을 기다리거나 직접 입력해 주세요.</p></div>`}`;
+  ${items.length ? `<div class="grid">${items.map(newsCard).join('')}</div>` : `<div class="panel empty"><img src="${esc(charSrc())}" alt=""><p>오늘 이 주제로 수집된 뉴스가 없어요. 다음 수집(3시간마다)을 기다리거나 직접 입력해 주세요.</p></div>`}`;
   bindMake(view);
   const provider = () => { const s = getSettings(); return getKeys()[s.provider] ? s.provider : (availableProviders()[0] || 'template'); };
   $('#t-one').addEventListener('click', async () => {
@@ -477,11 +521,12 @@ async function generateContent(news, provider, opts = {}) {
     body = templateContent(news, { handle: s.handle });
   } else {
     const text = await callModel(provider, {
-      apiKey: getKeys()[provider], model: s.models[provider], system: SYSTEM_PROMPT,
+      apiKey: getKeys()[provider], model: s.models[provider], system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand }),
       prompt: buildContentPrompt(news, { ...opts, handle: s.handle }), images: opts.images, schema: CONTENT_SCHEMA, webSearch: !!opts.webSearch, fetchUrl: !!opts.fromUrl, browser: true,
     });
     body = normalizeContent(extractJson(text), news);
   }
+  body = renameCharacter(body, s.charName, charOf(getActiveProfile()).emoji);
   // 주제는 사용자가 고른 값(자동 분류 또는 직접 변경)을 따른다. URL로 만들 때는 AI 판단을 쓴다
   if (CATEGORIES[news.category]) body.category = news.category;
   // 예전 계정 표기(@moa)가 남아 있으면 현재 계정으로 바꾼다
@@ -570,10 +615,11 @@ function createIntro() {
   const s = getSettings();
   const c = {
     id: newId(), createdAt: new Date().toISOString(), status: 'draft', model: 'template', modelName: '첫 게시물 프리셋',
-    format: s.format || DEFAULT_FORMAT, news: { title: '모아 소개' }, ...introContent(),
+    format: s.format || DEFAULT_FORMAT, news: { title: `${s.charName} 소개` }, ...renameCharacter(introContent(), s.charName, charOf(getActiveProfile()).emoji),
   };
+  if (s.handle) c.caption = (c.caption || '').replace(/@moa(\.story)?(?![\w.])/g, s.handle);
   saveContent(c);
-  toast('첫 게시물(모아 소개)을 만들었어요.');
+  toast(`첫 게시물(${s.charName} 소개)을 만들었어요.`);
   location.replace(`#/editor/${c.id}`); // 뒤로 가기로 다시 만들어지지 않게
 }
 
@@ -655,6 +701,7 @@ const LAYOUT_LABEL = { auto: '자동', big: '큰 제목', text: '설명형', lis
 async function editorView(id) {
   const c = getContent(id);
   if (!c) { view.innerHTML = '<div class="empty">콘텐츠를 찾을 수 없어요. <a href="#/contents">내 콘텐츠</a></div>'; return; }
+  ensureProfileFor(c);
   const env = await renderEnv();
   env.bgs = await loadBgs(c.id);
   c.format = c.format || DEFAULT_FORMAT;
@@ -873,13 +920,14 @@ async function downloadZip(contents, name) {
 async function contentsView() {
   view.innerHTML = `
   <h1>🗂️ 내 콘텐츠</h1>
-  <p class="sub">이 브라우저에 저장된 카드뉴스예요. 다른 기기로 옮기려면 백업 파일을 내보내 가져오세요.</p>
+  <p class="sub">이 브라우저에 저장된 <b>${esc(getActiveProfile().name)}</b> 계정의 카드뉴스예요. 다른 기기로 옮기려면 백업 파일을 내보내 가져오세요.</p>
   <div class="row" style="margin-bottom:14px">
     <input type="search" id="q" placeholder="제목 검색" style="max-width:220px">
     <select id="fc"><option value="">전체 카테고리</option>${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
     <select id="fm"><option value="">전체 모델</option>${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}<option value="template">템플릿</option></select>
     <select id="fs"><option value="">전체 상태</option>${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
     <input type="date" id="fd" style="max-width:170px" title="생성일">
+    <label class="small"><input type="checkbox" id="fall"> 모든 계정 보기</label>
     <span class="spacer"></span>
     <button class="btn sm" id="exp">백업 내보내기</button>
     <label class="btn sm">백업 가져오기<input type="file" id="imp" accept="application/json" hidden></label>
@@ -888,7 +936,7 @@ async function contentsView() {
   const draw = () => {
     const q = $('#q').value.trim().toLowerCase();
     const [fc, fm, fs, fd] = ['#fc', '#fm', '#fs', '#fd'].map((s) => $(s).value);
-    const rows = listContents().filter((c) => (!q || c.title.toLowerCase().includes(q)) && (!fc || c.category === fc) && (!fm || c.model === fm) && (!fs || c.status === fs)
+    const rows = ($('#fall')?.checked ? listContents() : mineOnly(listContents())).filter((c) => (!q || c.title.toLowerCase().includes(q)) && (!fc || c.category === fc) && (!fm || c.model === fm) && (!fs || c.status === fs)
       && (!fd || new Date(c.createdAt).toLocaleDateString('sv-SE') === fd));
     $('#tbl').innerHTML = rows.length ? `<div class="table-wrap"><table>
       <tr><th>제목</th><th>카테고리</th><th>AI 모델</th><th>상태</th><th>생성일</th><th></th></tr>
@@ -900,7 +948,7 @@ async function contentsView() {
         <td class="small">${esc(new Date(c.createdAt).toLocaleString('ko-KR'))}</td>
         <td><div class="row"><a class="btn sm" href="#/editor/${c.id}">열기</a><button class="btn sm" data-zip="${c.id}">ZIP</button><button class="btn sm danger" data-del="${c.id}">삭제</button></div></td>
       </tr>`).join('')}</table></div>`
-      : '<div class="panel empty"><img src="assets/moa/moa.png" alt=""><p>아직 만든 콘텐츠가 없어요.</p><a class="btn primary" href="#/news">뉴스 고르러 가기</a></div>';
+      : '<div class="panel empty"><img src="${esc(charSrc())}" alt=""><p>아직 만든 콘텐츠가 없어요.</p><a class="btn primary" href="#/news">뉴스 고르러 가기</a></div>';
     $$('[data-cc]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.cc); c.category = s.value; saveContent(c); toast(`주제: ${CATEGORIES[c.category].label}`); }));
     $$('[data-st]').forEach((s) => s.addEventListener('change', () => { const c = getContent(s.dataset.st); c.status = s.value; saveContent(c); toast(`상태: ${STATUSES[c.status]}`); }));
     $$('[data-del]').forEach((b) => b.addEventListener('click', () => { if (confirm('이 콘텐츠를 삭제할까요?')) { deleteContent(b.dataset.del); draw(); } }));
@@ -910,7 +958,7 @@ async function contentsView() {
       b.disabled = false;
     }));
   };
-  ['#q', '#fc', '#fm', '#fs', '#fd'].forEach((s) => $(s).addEventListener('input', draw));
+  ['#q', '#fc', '#fm', '#fs', '#fd', '#fall'].forEach((s) => $(s).addEventListener('input', draw));
   $('#exp').addEventListener('click', () => download(new Blob([JSON.stringify(listContents(), null, 1)], { type: 'application/json' }), `moa_backup_${today()}.json`));
   $('#imp').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -920,15 +968,53 @@ async function contentsView() {
 }
 
 // ---------- 설정 ----------
-async function settingsView() {
+async function settingsView(arg) {
+  if (arg === 'new') {
+    const base = getActiveProfile();
+    const id = newId();
+    saveProfile({ id, name: '새 계정', char: 'custom', charName: '새 캐릭터', handle: '@', brand: '새 계정', tagPrefix: 'MY', showChar: true, showCharShorts: true, showCharVideo: false, theme: base.theme, toonAccent: base.toonAccent, deckTheme: base.deckTheme });
+    setActiveProfile(id); ENV = null; drawProfileSwitch();
+    location.replace('#/settings');
+    return;
+  }
   const s = getSettings();
+  const prof = getActiveProfile();
   const keys = getKeys();
   const data = await loadNews();
-  const env = await renderEnv();
+  const env = await renderEnv(true);
+  const storedPoses = await getAllPoses();
   view.innerHTML = `
   <h1>⚙️ 설정</h1>
-  <p class="sub">AI 모델, 브랜드, 디자인, 모아 포즈 이미지를 설정해요.</p>
+  <p class="sub">계정(캐릭터)마다 인스타 계정·캐릭터·디자인을 따로 정할 수 있어요. AI 키와 모델은 모든 계정이 함께 써요.</p>
   <section class="panel">
+    <h3>👤 계정 · 캐릭터</h3>
+    <div class="profile-cards">
+      ${listProfiles().map((p) => `<button type="button" class="profile-card ${p.id === prof.id ? 'on' : ''}" data-prof="${esc(p.id)}"><img src="${esc(charOf(p).base || 'assets/moa/moa.png')}" alt=""><span><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.handle || '')}</span></span></button>`).join('')}
+      <a class="profile-card" href="#/settings/new" style="justify-content:center;text-decoration:none"><b>+ 새 계정 추가</b></a>
+    </div>
+    <p class="small muted" style="margin-top:0">지금 편집 중: <b>${esc(prof.name)}</b> — 아래 항목과 "브랜드 & 디자인", "포즈 이미지"는 이 계정에만 적용돼요.</p>
+    <div class="two">
+      <div class="field"><label for="pf-name">계정 이름 (사이드바 표시)</label><input type="text" id="pf-name" value="${esc(prof.name)}"></div>
+      <div class="field"><label for="handle">인스타그램 아이디 (카드 하단·캡션·숏폼 썸네일에 표시)</label><input type="text" id="handle" value="${esc(s.handle)}" placeholder="@my.account"></div>
+    </div>
+    <div class="two">
+      <div class="field"><label for="pf-char">캐릭터</label><select id="pf-char">${Object.entries(CHARACTERS).map(([k, v]) => `<option value="${k}" ${k === prof.char ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+      <div class="field"><label for="pf-charname">캐릭터 이름 (AI 원고·말풍선에 쓰여요)</label><input type="text" id="pf-charname" value="${esc(charNameOf(prof))}"></div>
+    </div>
+    <div class="row" id="pf-custom" style="margin-bottom:12px;${prof.char === 'custom' ? '' : 'display:none'}"><b class="small">캐릭터 기본 이미지 (배경이 투명한 PNG 권장)</b><span class="btn sm" style="position:relative">이미지 올리기<input type="file" accept="image/png,image/webp,image/jpeg" id="pf-base" style="position:absolute;inset:0;opacity:0;cursor:pointer"></span><span class="small muted">${env.charImg ? '등록됨' : '아직 없어요'}</span></div>
+    <div class="two">
+      <div class="field"><label for="pf-desc">캐릭터 소개 (AI가 말투·성격을 참고)</label><input type="text" id="pf-desc" value="${esc(prof.charDesc || charOf(prof).desc)}"></div>
+      <div class="field"><label for="brand">브랜드 표기</label><input type="text" id="brand" value="${esc(s.brand)}"></div>
+    </div>
+    <div class="field"><label for="pf-tag">카드 상단 태그 (예: MOA NEWS → HAPPY NEWS)</label><input type="text" id="pf-tag" value="${esc(prof.tagPrefix || 'MOA')}" style="max-width:200px"></div>
+    <div class="field"><label>캐릭터 등장</label>
+      <label class="small check-line"><input type="checkbox" id="pf-showchar" ${prof.showChar !== false ? 'checked' : ''}><span>카드뉴스에 캐릭터 넣기</span></label>
+      <label class="small check-line"><input type="checkbox" id="pf-showshorts" ${prof.showCharShorts !== false ? 'checked' : ''}><span>숏폼 썸네일에 캐릭터 넣기</span></label>
+      <label class="small check-line"><input type="checkbox" id="pf-showvideo" ${prof.showCharVideo ? 'checked' : ''}><span>숏폼 영상 안에도 캐릭터 넣기 (오른쪽 아래, 숏폼마다 바꿀 수 있어요)</span></label>
+    </div>
+    <div class="row"><button class="btn danger sm" id="pf-del" ${listProfiles().length < 2 ? 'disabled' : ''}>이 계정 삭제</button><span class="small muted">계정을 지워도 만든 콘텐츠는 남아요("모든 계정 보기"에서 확인).</span></div>
+  </section>
+  <section class="panel" style="margin-top:16px">
     <h3>AI 모델 & API 키</h3>
     <div class="notice small">이 사이트는 서버 없이 GitHub Pages에서 동작해서, API 키는 <b>이 브라우저(localStorage)에만</b> 저장되고 OpenAI·Google·Anthropic 서버로 직접 전송돼요. 공용 PC에서는 사용 후 키를 지워 주세요. 각 회사 콘솔에서 사용 한도(예산)를 걸어 두는 것을 권장해요.</div>
     <div class="field"><label>기본 모델</label><div class="seg" id="defprov">${Object.entries(PROVIDERS).map(([k, p]) => `<button type="button" data-p="${k}" class="${k === s.provider ? 'on' : ''}">${p.label}</button>`).join('')}</div></div>
@@ -941,11 +1027,7 @@ async function settingsView() {
     <label class="row small"><input type="checkbox" id="ws" ${s.webSearch ? 'checked' : ''}> 기본으로 웹 검색 사실 확인 사용</label>
   </section>
   <section class="panel" style="margin-top:16px">
-    <h3>브랜드 & 디자인</h3>
-    <div class="two">
-      <div class="field"><label for="brand">브랜드 표기</label><input type="text" id="brand" value="${esc(s.brand)}"></div>
-      <div class="field"><label for="handle">인스타그램 계정</label><input type="text" id="handle" value="${esc(s.handle)}"></div>
-    </div>
+    <h3>브랜드 & 디자인 <span class="small muted">· ${esc(prof.name)}</span></h3>
     <div class="two">
       <div class="field"><label for="format">기본 카드 크기</label><select id="format">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}" ${k === (s.format || DEFAULT_FORMAT) ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
       <div class="field"><label for="imgprov">배경 이미지 생성</label><select id="imgprov">${Object.entries(IMAGE_PROVIDERS).map(([k, v]) => `<option value="${k}" ${k === s.imageProvider ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
@@ -963,13 +1045,13 @@ async function settingsView() {
       <button class="btn sm" id="theme-reset">기본 색으로</button></div>
   </section>
   <section class="panel" style="margin-top:16px">
-    <h3>모아 포즈 이미지</h3>
-    <p class="small muted">기본은 첨부한 모아 이미지 한 장에 포즈별 기울기·효과(!, ?, 체크, 하트 등)를 더해 표현해요. 포즈별 일러스트(배경이 투명한 PNG)가 있으면 올려 주세요. 올린 이미지가 우선 사용돼요.</p>
+    <h3>${esc(charNameOf(prof))} 포즈 이미지</h3>
+    <p class="small muted">${charOf(prof).poses ? '포즈별 일러스트가 기본으로 들어 있어요.' : '기본 이미지 한 장에 포즈별 기울기·효과(!, ?, 체크, 하트 등)를 더해 표현해요.'} 포즈별 일러스트(배경이 투명한 PNG)를 올리면 그 이미지가 우선 사용돼요.</p>
     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))" id="poses">
       ${Object.entries(POSES).map(([p, l]) => `<div class="panel" style="padding:10px;text-align:center">
         <canvas data-pv="${p}" width="1080" height="1080" style="width:100%;border-radius:10px"></canvas>
-        <div class="small" style="font-weight:700;margin:6px 0">${l}${env.poses[p] ? ' · 사용자 이미지' : ''}</div>
-        <div class="row" style="justify-content:center"><label class="btn sm">올리기<input type="file" accept="image/png,image/webp,image/jpeg" data-up="${p}" hidden></label>${env.poses[p] ? `<button class="btn sm danger" data-rm="${p}">삭제</button>` : ''}</div>
+        <div class="small" style="font-weight:700;margin:6px 0">${l}${storedPoses[poseKey(prof.id, p)] ? ' · 사용자 이미지' : ''}</div>
+        <div class="row" style="justify-content:center"><label class="btn sm">올리기<input type="file" accept="image/png,image/webp,image/jpeg" data-up="${p}" hidden></label>${storedPoses[poseKey(prof.id, p)] ? `<button class="btn sm danger" data-rm="${p}">삭제</button>` : ''}</div>
       </div>`).join('')}
     </div>
   </section>
@@ -993,13 +1075,37 @@ async function settingsView() {
     ns.toonFont = $('#toonfont').value;
     ns.toonAccent = $('#toonaccent').value;
     ns.imageProvider = $('#imgprov').value;
+    ns.name = $('#pf-name').value.trim() || prof.name;
+    ns.char = $('#pf-char').value;
+    ns.charName = $('#pf-charname').value.trim() || CHARACTERS[ns.char].name || '캐릭터';
+    ns.charDesc = $('#pf-desc').value.trim();
+    ns.tagPrefix = ($('#pf-tag').value.trim() || 'MOA').toUpperCase().slice(0, 12);
+    ns.showChar = $('#pf-showchar').checked;
+    ns.showCharShorts = $('#pf-showshorts').checked;
+    ns.showCharVideo = $('#pf-showvideo').checked;
     ns.imageModels = Object.fromEntries(Object.entries(IMAGE_PROVIDERS).map(([k, v]) => [k, $(`#img-${k}`).value.trim() || v.defaultModel]));
     $$('[data-theme]').forEach((i) => { ns.theme[i.dataset.theme] = i.value; });
     const nk = {};
     Object.keys(PROVIDERS).forEach((k) => { const v = $(`#key-${k}`).value.trim(); if (v) nk[k] = v; });
     return { ns, nk };
   };
-  $('#save').addEventListener('click', () => { const { ns, nk } = collect(); saveSettings(ns); saveKeys(nk); ENV.settings = ns; toast('저장했어요.'); drawPreviews(); });
+  $('#save').addEventListener('click', async () => { const { ns, nk } = collect(); saveSettings(ns); saveKeys(nk); await renderEnv(true); drawProfileSwitch(); toast(`${ns.name} 계정 설정을 저장했어요.`); settingsView(); });
+  $$('[data-prof]').forEach((b) => b.addEventListener('click', () => { setActiveProfile(b.dataset.prof); ENV = null; drawProfileSwitch(); settingsView(); }));
+  $('#pf-char').addEventListener('change', (e) => {
+    $('#pf-custom').style.display = e.target.value === 'custom' ? '' : 'none';
+    const ch = CHARACTERS[e.target.value];
+    if (ch.name) $('#pf-charname').value = ch.name;
+    $('#pf-desc').value = ch.desc;
+  });
+  $('#pf-base').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > 4 * 1024 * 1024) { toast('4MB 이하 이미지를 올려 주세요.', true); return; }
+    await putPose(poseKey(prof.id, 'base'), f); prof.char = 'custom'; saveProfile(prof); await renderEnv(true); drawProfileSwitch(); toast('캐릭터 이미지를 저장했어요.'); settingsView();
+  });
+  $('#pf-del').addEventListener('click', () => {
+    if (!confirm(`${prof.name} 계정을 삭제할까요? (만든 콘텐츠는 남아요)`)) return;
+    deleteProfile(prof.id); ENV = null; drawProfileSwitch(); settingsView();
+  });
   $('#clear-keys').addEventListener('click', () => { if (!confirm('저장된 API 키를 모두 지울까요?')) return; saveKeys({}); Object.keys(PROVIDERS).forEach((k) => { $(`#key-${k}`).value = ''; }); toast('API 키를 지웠어요.'); });
   $('#theme-reset').addEventListener('click', () => { const d = { bg: '#FFF9F0', brown: '#6F6258', pink: '#F5B8B5', green: '#C9D8C0' }; $$('[data-theme]').forEach((i) => { i.value = d[i.dataset.theme]; }); });
   $$('[data-test]').forEach((b) => b.addEventListener('click', async () => {
@@ -1017,18 +1123,19 @@ async function settingsView() {
   $$('[data-up]').forEach((inp) => inp.addEventListener('change', async () => {
     const f = inp.files[0]; if (!f) return;
     if (f.size > 4 * 1024 * 1024) { toast('4MB 이하 이미지를 올려 주세요.', true); return; }
-    await putPose(inp.dataset.up, f); await renderEnv(true); toast('포즈 이미지를 저장했어요.'); settingsView();
+    await putPose(poseKey(prof.id, inp.dataset.up), f); await renderEnv(true); toast('포즈 이미지를 저장했어요.'); settingsView();
   }));
-  $$('[data-rm]').forEach((b) => b.addEventListener('click', async () => { await deletePose(b.dataset.rm); await renderEnv(true); settingsView(); }));
+  $$('[data-rm]').forEach((b) => b.addEventListener('click', async () => { await deletePose(poseKey(prof.id, b.dataset.rm)); await renderEnv(true); settingsView(); }));
 
   async function drawPreviews() {
     for (const cv of $$('[data-pv]')) {
       const pose = cv.dataset.pv;
       const demo = { category: 'NEWS', sources: [], cards: [{ type: 'WHAT', title: '', body: '', highlight: '', items: [], number: '', numberLabel: '', compare: {}, layout: 'big', pose, moaSays: '', style: { bare: true, moaPos: 'bc', moaScale: 1.9 } }] };
-      await renderCard(cv, demo, 0, ENV);
+      await renderCard(cv, demo, 0, { ...ENV, moa: ENV.charImg, poses: ENV.charPoses });
     }
   }
   drawPreviews();
 }
 
+drawProfileSwitch();
 route();

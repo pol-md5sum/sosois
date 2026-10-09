@@ -29,12 +29,78 @@ export const DEFAULT_SETTINGS = {
   imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
 
+// ---------- 계정(캐릭터) ----------
+// 계정마다 캐릭터·인스타 계정·브랜드·카드 디자인을 따로 가진다. AI 키·모델 같은 공통 설정은 함께 쓴다.
+export const PROFILE_KEYS = ['name', 'char', 'charName', 'charDesc', 'tagPrefix', 'handle', 'brand', 'theme', 'font', 'format', 'deckTheme', 'toonBg', 'toonAccent', 'toonFont', 'autoCover', 'showChar', 'showCharShorts', 'showCharVideo'];
+export const CHARACTERS = {
+  moa: { label: '🐑 모아 (양)', emoji: '🐑', name: '모아', desc: '귀엽고 복슬복슬한 양 캐릭터', base: 'assets/moa/moa.png', poses: null },
+  happy: { label: '🧸 해피해피 (곰)', emoji: '🧸', name: '해피해피', desc: '노란 체크 턱받이를 한 복슬복슬한 아기 곰 캐릭터', base: 'assets/happy/happy.webp', poses: 'assets/happy/', ext: 'webp' },
+  custom: { label: '🖼️ 직접 올린 캐릭터', emoji: '✨', name: '', desc: '귀여운 캐릭터', base: null, poses: null },
+};
+const PROFILES_KEY = 'moa.profiles';
+const ACTIVE_KEY = 'moa.activeProfile';
+const PROFILE_DEFAULTS = { char: 'moa', showChar: true, showCharShorts: true, showCharVideo: false, tagPrefix: 'MOA' };
+export const DEFAULT_PROFILES = [
+  { id: 'moa', name: 'MOA 모아', char: 'moa', charName: '모아', handle: '@moa.story', brand: 'MOA | 모아', tagPrefix: 'MOA' },
+  { id: 'happy', name: '해피해피', char: 'happy', charName: '해피해피', handle: '@happyhappy', brand: '해피해피', tagPrefix: 'HAPPY', toonAccent: '#F59E0B', theme: { bg: '#FFF8E7', brown: '#7A5A3A', pink: '#F8C9A0', green: '#F3DFA2' } },
+];
+export function listProfiles() {
+  let list = read(PROFILES_KEY, null);
+  if (!Array.isArray(list) || !list.length) {
+    // 처음: 기존 설정(계정·디자인)을 모아 계정으로 옮기고 해피해피 계정을 추가한다
+    const old = read(K.settings, {});
+    const moa = { ...DEFAULT_PROFILES[0] };
+    for (const k of PROFILE_KEYS) if (old[k] !== undefined && k !== 'name') moa[k] = old[k];
+    if (moa.handle === '@moa.studio' || moa.handle === '@moa') moa.handle = '@moa.story';
+    list = [moa, { ...DEFAULT_PROFILES[1] }];
+    write(PROFILES_KEY, list);
+  }
+  return list.map((p) => ({ ...PROFILE_DEFAULTS, ...p }));
+}
+export function getActiveProfile() {
+  const list = listProfiles();
+  const id = read(ACTIVE_KEY, 'moa');
+  return list.find((p) => p.id === id) || list[0];
+}
+export const setActiveProfile = (id) => write(ACTIVE_KEY, id);
+export function saveProfile(p) {
+  const list = listProfiles();
+  const i = list.findIndex((x) => x.id === p.id);
+  if (i >= 0) list[i] = p; else list.push(p);
+  write(PROFILES_KEY, list);
+  return p;
+}
+export function deleteProfile(id) {
+  const list = listProfiles().filter((p) => p.id !== id);
+  if (!list.length) return false;
+  write(PROFILES_KEY, list);
+  if (read(ACTIVE_KEY, 'moa') === id) setActiveProfile(list[0].id);
+  return true;
+}
+export const charOf = (p) => CHARACTERS[p?.char] || CHARACTERS.moa;
+export const charNameOf = (p) => p?.charName || charOf(p).name || p?.name || '캐릭터';
+// 업로드한 포즈 이미지 저장 키: 모아 계정은 예전 키 그대로, 다른 계정은 "계정ID:포즈"
+export const poseKey = (profileId, pose) => (profileId === 'moa' ? pose : `${profileId}:${pose}`);
+
 export function getSettings() {
   const s = read(K.settings, {});
-  if (s.handle === '@moa.studio' || s.handle === '@moa') s.handle = '@moa.story'; // 이전 기본값 정리
-  return { ...DEFAULT_SETTINGS, ...s, models: { ...DEFAULT_SETTINGS.models, ...(s.models || {}) }, imageModels: { ...DEFAULT_SETTINGS.imageModels, ...(s.imageModels || {}) }, theme: { ...DEFAULT_SETTINGS.theme, ...(s.theme || {}) } };
+  const prof = getActiveProfile();
+  const own = Object.fromEntries(PROFILE_KEYS.filter((k) => prof[k] !== undefined).map((k) => [k, prof[k]]));
+  const m = { ...DEFAULT_SETTINGS, ...s, ...own, profileId: prof.id, profileName: prof.name, charName: charNameOf(prof) };
+  if (m.handle === '@moa.studio' || m.handle === '@moa') m.handle = '@moa.story'; // 이전 기본값 정리
+  return { ...m, models: { ...DEFAULT_SETTINGS.models, ...(s.models || {}) }, imageModels: { ...DEFAULT_SETTINGS.imageModels, ...(s.imageModels || {}) }, theme: { ...DEFAULT_SETTINGS.theme, ...(own.theme || s.theme || {}) } };
 }
-export const saveSettings = (s) => write(K.settings, s);
+// 계정 항목은 현재 계정에, 나머지는 공통 설정에 저장한다
+export function saveSettings(ns) {
+  const prof = getActiveProfile();
+  const common = {};
+  for (const [k, v] of Object.entries(ns)) {
+    if (['profileId', 'profileName'].includes(k)) continue;
+    if (PROFILE_KEYS.includes(k)) prof[k] = v; else common[k] = v;
+  }
+  saveProfile(prof);
+  return write(K.settings, common);
+}
 
 export const getKeys = () => read(K.keys, {});
 export const saveKeys = (k) => write(K.keys, k);
@@ -44,9 +110,12 @@ export const availableProviders = () => Object.keys(PROVIDERS).filter((p) => get
 export const STATUSES = { draft: '초안', done: '제작 완료', scheduled: '게시 예정', posted: '게시 완료' };
 
 export const listContents = () => read(K.contents, []);
+export const profileOfItem = (x) => x?.profileId || 'moa';
+export const mineOnly = (arr) => { const id = getActiveProfile().id; return arr.filter((x) => profileOfItem(x) === id); };
 export const getContent = (id) => listContents().find((c) => c.id === id);
 export function saveContent(c) {
   const all = listContents();
+  if (!c.profileId) c.profileId = getActiveProfile().id;
   c.updatedAt = new Date().toISOString();
   const i = all.findIndex((x) => x.id === c.id);
   if (i >= 0) all[i] = c; else all.unshift(c);
@@ -154,6 +223,7 @@ export const listShorts = () => read(SHORTS_KEY, []);
 export const getShort = (id) => listShorts().find((p) => p.id === id);
 export function saveShort(p) {
   const all = listShorts();
+  if (!p.profileId) p.profileId = getActiveProfile().id;
   p.updatedAt = new Date().toISOString();
   const i = all.findIndex((x) => x.id === p.id);
   if (i >= 0) all[i] = p; else all.unshift(p);
