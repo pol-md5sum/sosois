@@ -10,6 +10,8 @@ import {
 } from './store.js';
 import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, TOON_FONTS } from './render.js';
 
+import { createShortsViews } from './shorts.js';
+
 const TOPICS = () => TOPIC_KEYS().map((k) => [k, CATEGORIES[k]]);
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -126,7 +128,12 @@ function setDraftNews(n) { sessionStorage.setItem('moa.draftNews', JSON.stringif
 function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.draftNews')) || null; } catch { return null; } }
 
 // ---------- 라우터 ----------
-const routes = { dashboard, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
+let SHORTS = null;
+const shortsRoute = (arg) => {
+  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName });
+  return arg ? SHORTS.editorView(arg) : SHORTS.listView();
+};
+const routes = { dashboard, shorts: shortsRoute, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
 async function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   const r = routes[name] ? name : 'dashboard';

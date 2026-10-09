@@ -73,10 +73,11 @@ export const newId = () => `c${Date.now().toString(36)}${Math.random().toString(
 // ---------- 포즈 이미지 (IndexedDB) ----------
 function db() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('moa', 2);
+    const r = indexedDB.open('moa', 3);
     r.onupgradeneeded = () => {
       if (!r.result.objectStoreNames.contains('poses')) r.result.createObjectStore('poses');
       if (!r.result.objectStoreNames.contains('bgs')) r.result.createObjectStore('bgs');
+      if (!r.result.objectStoreNames.contains('videos')) r.result.createObjectStore('videos');
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -130,4 +131,37 @@ export async function getBgsFor(contentId) {
   } catch {
     return {};
   }
+}
+
+// ---------- 숏폼 영상 (IndexedDB에 원본 파일, localStorage에 프로젝트 정보) ----------
+export const putVideo = (key, blob) => tx('readwrite', (s) => s.put(blob, key), 'videos');
+export const deleteVideo = (key) => tx('readwrite', (s) => s.delete(key), 'videos');
+export async function getVideo(key) {
+  try {
+    const d = await db();
+    return await new Promise((res, rej) => {
+      const req = d.transaction('videos').objectStore('videos').get(key);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+const SHORTS_KEY = 'moa.shorts';
+export const listShorts = () => read(SHORTS_KEY, []);
+export const getShort = (id) => listShorts().find((p) => p.id === id);
+export function saveShort(p) {
+  const all = listShorts();
+  p.updatedAt = new Date().toISOString();
+  const i = all.findIndex((x) => x.id === p.id);
+  if (i >= 0) all[i] = p; else all.unshift(p);
+  if (!write(SHORTS_KEY, all)) throw new Error('브라우저 저장 공간이 부족합니다.');
+  return p;
+}
+export async function deleteShort(id) {
+  const p = getShort(id);
+  for (const c of p?.clips || []) await deleteVideo(c.key).catch(() => {});
+  write(SHORTS_KEY, listShorts().filter((x) => x.id !== id));
 }
