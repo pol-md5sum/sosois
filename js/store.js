@@ -24,14 +24,14 @@ export const DEFAULT_SETTINGS = {
   deckTheme: 'toon',
   toonBg: 'white', // 인스타툰 배경: white(흰색) / pastel(장마다 파스텔)
   toonAccent: '#F0506E', // 인스타툰 강조색
-  toonFont: 'Jua', // 인스타툰 제목 폰트 // 카드뉴스 디자인: toon(인스타툰) / magazine(매거진)
+  toonFont: 'Pretendard', // 인스타툰 제목 폰트 // 카드뉴스 디자인: toon(인스타툰) / magazine(매거진)
   autoCover: true, // 콘텐츠를 만들면 첫 장 실사 배경을 AI로 자동 생성
   imageModels: { gpt: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' },
 };
 
 // ---------- 계정(캐릭터) ----------
 // 계정마다 캐릭터·인스타 계정·브랜드·카드 디자인을 따로 가진다. AI 키·모델 같은 공통 설정은 함께 쓴다.
-export const PROFILE_KEYS = ['name', 'char', 'charName', 'charDesc', 'tagPrefix', 'handle', 'brand', 'theme', 'font', 'format', 'deckTheme', 'toonBg', 'toonAccent', 'toonFont', 'autoCover', 'showChar', 'showCharShorts', 'showCharVideo'];
+export const PROFILE_KEYS = ['name', 'char', 'charName', 'charDesc', 'tagPrefix', 'handle', 'brand', 'theme', 'font', 'format', 'deckTheme', 'toonBg', 'toonAccent', 'toonFont', 'toonBubble', 'shortsFont', 'autoCover', 'showChar', 'showCharShorts', 'showCharVideo', 'topics', 'focus', 'slogan', 'audience', 'baseTag'];
 export const CHARACTERS = {
   moa: { label: '🐑 모아 (양)', emoji: '🐑', name: '모아', desc: '귀엽고 복슬복슬한 양 캐릭터', base: 'assets/moa/moa.png', poses: null },
   happy: { label: '🧸 해피해피 (곰)', emoji: '🧸', name: '해피해피', desc: '노란 체크 턱받이를 한 복슬복슬한 아기 곰 캐릭터', base: 'assets/happy/happy.webp', poses: 'assets/happy/', ext: 'webp' },
@@ -40,10 +40,19 @@ export const CHARACTERS = {
 const PROFILES_KEY = 'moa.profiles';
 const ACTIVE_KEY = 'moa.activeProfile';
 const PROFILE_DEFAULTS = { char: 'moa', showChar: true, showCharShorts: true, showCharVideo: false, tagPrefix: 'MOA' };
+const HAPPY_FOCUS = `이 계정은 육아·아기·유아용품·생활용품·생활템만 다룬다. 독자는 영유아를 키우는 엄마·아빠다.
+- 뉴스·트렌드를 고를 때도 이 주제와 이어지는 부분(부모에게 생기는 변화, 아이에게 미치는 영향, 살림·소비 팁)만 다룬다.
+- 육아 정책·지원금은 대상·금액·기간·신청처를 정확히, 아이 건강·발달은 단정하지 말고 소아청소년과 상담을 권한다.
+- 제품은 광고처럼 쓰지 않는다. 가격·구매처는 확인된 사실만, 근거 없는 "1위·최고" 표현 금지. 안전·리콜 정보는 꼭 챙긴다.
+- 말투는 다정하고 공감하는 반말. category는 PARENTING(육아)·BABY(아기·유아용품)·LIVING(생활용품)·ITEM(생활템) 중 하나.`;
 export const DEFAULT_PROFILES = [
-  { id: 'moa', name: 'MOA 모아', char: 'moa', charName: '모아', handle: '@moa.story', brand: 'MOA | 모아', tagPrefix: 'MOA' },
-  { id: 'happy', name: '해피해피', char: 'happy', charName: '해피해피', handle: '@happyhappy', brand: '해피해피', tagPrefix: 'HAPPY', toonAccent: '#F59E0B', theme: { bg: '#FFF8E7', brown: '#7A5A3A', pink: '#F8C9A0', green: '#F3DFA2' } },
+  { id: 'moa', name: 'MOA 모아', char: 'moa', charName: '모아', handle: '@moa.story', brand: 'MOA | 모아', tagPrefix: 'MOA', toonFont: 'Pretendard', toonBubble: 'Gowun', shortsFont: 'pblack', slogan: '요즘 뭐가 뜨는지, 모아가 알려줄게.', audience: '20~40대 여성', baseTag: '모아뉴스' },
+  { id: 'happy', name: '해피해피', char: 'happy', charName: '해피해피', handle: '@happyhappy', brand: '해피해피', tagPrefix: 'HAPPY', toonAccent: '#F59E0B', toonFont: 'Ssurround', toonBubble: 'Gowun', shortsFont: 'ssurround', theme: { bg: '#FFF8E7', brown: '#7A5A3A', pink: '#F8C9A0', green: '#F3DFA2' },
+    topics: ['PARENTING', 'BABY', 'LIVING', 'ITEM'], focus: HAPPY_FOCUS, slogan: '육아·아기·생활템, 해피해피가 쉽게 골라줄게.', audience: '영유아를 키우는 엄마·아빠', baseTag: '해피해피' },
 ];
+const DEFAULT_BY_ID = Object.fromEntries(DEFAULT_PROFILES.map((p) => [p.id, p]));
+// 글꼴 개편(촌스러운 기본 글꼴 → 요즘 인스타·유튜브 글꼴) 전에 저장된 계정은 한 번만 새 기본값으로 바꾼다
+const OLD_TOON_FONTS = ['Jua', undefined, ''];
 export function listProfiles() {
   let list = read(PROFILES_KEY, null);
   if (!Array.isArray(list) || !list.length) {
@@ -55,7 +64,24 @@ export function listProfiles() {
     list = [moa, { ...DEFAULT_PROFILES[1] }];
     write(PROFILES_KEY, list);
   }
-  return list.map((p) => ({ ...PROFILE_DEFAULTS, ...p }));
+  let changed = false;
+  const out = list.map((p) => {
+    const d = DEFAULT_BY_ID[p.id] || {};
+    const m = { ...PROFILE_DEFAULTS, ...d, ...p };
+    // 기본 계정에 새로 생긴 항목(주제·말투 등)은 기본값을 쓴다
+    for (const k of ['topics', 'focus', 'slogan', 'audience', 'baseTag']) if (p[k] === undefined && d[k] !== undefined) m[k] = d[k];
+    if (!p.fontsV2) {
+      if (OLD_TOON_FONTS.includes(p.toonFont)) m.toonFont = d.toonFont || 'Pretendard';
+      m.toonBubble = m.toonBubble || 'Gowun';
+      m.shortsFont = m.shortsFont || d.shortsFont || 'pblack';
+      m.fontsV2 = true;
+      Object.assign(p, { toonFont: m.toonFont, toonBubble: m.toonBubble, shortsFont: m.shortsFont, fontsV2: true });
+      changed = true;
+    }
+    return m;
+  });
+  if (changed) write(PROFILES_KEY, list);
+  return out;
 }
 export function getActiveProfile() {
   const list = listProfiles();

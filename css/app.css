@@ -1,4 +1,9 @@
 @font-face { font-family: 'GmarketSans'; font-weight: 500; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansMedium.woff') format('woff'); }
+/* 카드·숏폼용 굵은 제목 글꼴 (사이트에 직접 포함 — assets/fonts/LICENSES.md) */
+@font-face { font-family: 'PretendardBlack'; font-weight: 100 900; font-display: swap; src: url('../assets/fonts/Pretendard-Black.woff2') format('woff2'); }
+@font-face { font-family: 'SUITHeavy'; font-weight: 100 900; font-display: swap; src: url('../assets/fonts/SUIT-Heavy.woff2') format('woff2'); }
+@font-face { font-family: 'Cafe24Ssurround'; font-weight: 100 900; font-display: swap; src: url('../assets/fonts/Cafe24Ssurround.woff') format('woff'); }
+@font-face { font-family: 'GmarketSansBold'; font-weight: 100 900; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff') format('woff'); }
 @font-face { font-family: 'GmarketSans'; font-weight: 700; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff') format('woff'); }
 :root {
   --bg: #FFF9F0;
@@ -214,3 +219,5 @@ td select { width: auto; padding: 5px 8px; }
 .clip-place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; align-items: center; margin-top: 6px; }
 .clip-place-grid label { display: grid; gap: 2px; }
 .clip-place-grid select { width: 100%; }
+.font-preview { display: grid; gap: 6px; padding: 14px 16px; margin: 0 0 12px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
+.font-preview .fp-shorts { justify-self: start; padding: 6px 14px; border-radius: 10px; background: #8a8a8a; color: #fff; font-size: 26px; -webkit-text-stroke: 5px #000; paint-order: stroke fill; }

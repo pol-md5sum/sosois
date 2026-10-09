@@ -114,4 +114,21 @@ if (R) {
   assert.equal(R.tagLabel("MOA'S PICK", { tagPrefix: 'HAPPY' }), "HAPPY'S PICK");
   assert.equal(R.tagLabel('WHAT', { tagPrefix: 'HAPPY' }), 'WHAT');
 }
+// 해피해피 뉴스: 육아·아기·생활용품·생활템 분류와 점수
+const FN = await import('./fetch-news.mjs');
+assert.equal(FN.classifyHappy('아기 이유식 기저귀 할인', 'PARENTING'), 'BABY');
+assert.equal(FN.classifyHappy('다이소 살림템 품절', 'LIVING'), 'ITEM');
+assert.equal(FN.classifyHappy('부모급여 신청 방법 육아휴직', 'BABY'), 'PARENTING');
+const hnow = Date.now();
+const hitems = FN.buildHappyItems([
+  { title: '부모급여 내년부터 인상…신청 방법은 - 연합뉴스', source: '연합뉴스', url: 'https://a/1', publishedAt: new Date(hnow - 36e5).toISOString(), category: 'PARENTING', related: [] },
+  { title: '아기 젖병 리콜 대상 제품 확인하세요 - KBS', source: 'KBS', url: 'https://a/2', publishedAt: new Date(hnow - 2 * 36e5).toISOString(), category: 'BABY', related: [] },
+  { title: '다이소 신상 수납 꿀템 품절 행렬 - 머니투데이', source: '머니투데이', url: 'https://a/3', publishedAt: new Date(hnow - 3 * 36e5).toISOString(), category: 'ITEM', related: [] },
+], hnow);
+assert.equal(hitems.length, 3);
+assert.ok(hitems.every((x) => x.channel === 'happy' && AI2.HAPPY_TOPICS.includes(x.category)), JSON.stringify(hitems.map((x) => x.category)));
+assert.ok(!AI2.TOPIC_KEYS().includes('PARENTING'), '모아 주제에는 해피해피 주제가 섞이지 않음');
+assert.ok(AI2.personaSystem('기본', { focus: '육아만 다룬다' }).includes('육아만 다룬다'));
+assert.equal(AI2.introContentHappy().cards.length, 7);
+assert.ok(!JSON.stringify(AI2.introContentHappy()).includes('모아'));
 console.log('profile selftest OK');

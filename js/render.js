@@ -349,6 +349,7 @@ export async function renderCard(canvas, content, index, env) {
   const card = content.cards[index];
   const st = { ...(card.style || {}) };
   const settings = env.settings;
+  applyFonts(settings);
   const t = { ...settings.theme, ...(st.accent ? { pink: st.accent } : {}) };
   const family = FONT_STACK[settings.font] || FONT_STACK.Pretendard;
   const layout = autoLayout(card);
@@ -682,7 +683,7 @@ function layCta(ctx, card, y, o, content, settings) {
 }
 
 // ---------- 캐릭터 썸네일 커버 (흰 배경 + 큰 제목 + 말풍선 + 모아) ----------
-export const CHARACTER_FONTS = { title: '"Jua", "GmarketSans", "Pretendard Variable", sans-serif', bubble: '"Nanum Pen Script", "Jua", "Pretendard Variable", sans-serif' };
+export const CHARACTER_FONTS = { title: '"PretendardBlack", "Pretendard Variable", sans-serif', bubble: '"Gowun Dodum", "Pretendard Variable", sans-serif' };
 const NUM_RE = /\d[\d,.]*\s?(만|천|억|조|%|원|년|배|살|대|가지|개)?/g;
 
 async function drawCharacterCover(ctx, content, card, { t, settings, env, fontScale, pos }) {
@@ -914,7 +915,8 @@ function drawMotif(ctx, category, t) {
       star(700, 240, 34);
       break;
     }
-    case 'MOA': {
+    case 'MOA':
+    case 'HAPPY': {
       [[180, B - 300, 110], [380, B - 180, 60], [860, 300, 80], [720, 420, 40]].forEach(([x, y, r]) => { heartPath(ctx, x, y, r); ctx.fill(); });
       [[120, 420, 40], [180, 400, 56], [250, 420, 40]].forEach(([x, y, r]) => circle(x, y + 500, r));
       break;
@@ -1092,11 +1094,42 @@ const cardTexts = (card) => [card.title, card.body, card.highlight, card.moaSays
 // ---------------------------------------------------------------------
 // 인스타툰 배경 (흰색 또는 장마다 다른 파스텔)
 export const TOON_PASTELS = ['#FBE8A6', '#BFE3B4', '#BFDDF2', '#F9C29B', '#D9C3F0', '#F8CFE0', '#F6F1C7'];
+// 제목 글꼴 — 요즘 인스타 카드뉴스·유튜브 썸네일에서 많이 쓰는 굵은 고딕/둥근 고딕 위주
 export const TOON_FONTS = {
+  Pretendard: '"PretendardBlack", "Pretendard Variable", "Apple SD Gothic Neo", sans-serif',
+  Ssurround: '"Cafe24Ssurround", "PretendardBlack", "Pretendard Variable", sans-serif',
+  SUIT: '"SUITHeavy", "PretendardBlack", "Pretendard Variable", sans-serif',
+  Gmarket: '"GmarketSansBold", "PretendardBlack", "Pretendard Variable", sans-serif',
+  Bagel: '"Bagel Fat One", "Cafe24Ssurround", "Pretendard Variable", sans-serif',
+  Gasoek: '"Gasoek One", "PretendardBlack", "Pretendard Variable", sans-serif',
   Jua: '"Jua", "Pretendard Variable", sans-serif',
   DoHyeon: '"Do Hyeon", "Jua", "Pretendard Variable", sans-serif',
   BlackHanSans: '"Black Han Sans", "Jua", "Pretendard Variable", sans-serif',
 };
+export const TOON_FONT_LABELS = {
+  Pretendard: '프리텐다드 블랙 — 요즘 카드뉴스 기본 (깔끔·굵게)',
+  Ssurround: '카페24 써라운드 — 둥글고 귀엽게 (육아·생활 계정 추천)',
+  SUIT: '수트 헤비 — 단단한 고딕',
+  Gmarket: 'G마켓 산스 Bold — 카드뉴스·썸네일 단골',
+  Bagel: '베이글 팻 원 — 통통한 썸네일 글씨',
+  Gasoek: '가석 원 — 아주 굵은 임팩트',
+  Jua: '주아 (옛 스타일)',
+  DoHyeon: '도현 (옛 스타일)',
+  BlackHanSans: '검은고딕 (옛 스타일)',
+};
+// 말풍선·본문 글꼴
+export const BUBBLE_FONTS = {
+  Gowun: '"Gowun Dodum", "Pretendard Variable", sans-serif',
+  Pretendard: '"Pretendard Variable", Pretendard, sans-serif',
+  Ssurround: '"Cafe24Ssurround", "Pretendard Variable", sans-serif',
+  Pen: '"Nanum Pen Script", "Jua", "Pretendard Variable", sans-serif',
+};
+export const BUBBLE_FONT_LABELS = { Gowun: '고운돋움 — 부드럽고 깔끔 (추천)', Pretendard: '프리텐다드 — 정보형', Ssurround: '카페24 써라운드 — 귀엽게', Pen: '나눔펜 손글씨 (옛 스타일)' };
+// 계정 설정에 맞춰 캐릭터 커버·말풍선 글꼴을 바꾼다
+export function applyFonts(settings = {}) {
+  CHARACTER_FONTS.title = TOON_FONTS[settings.toonFont] || TOON_FONTS.Pretendard;
+  CHARACTER_FONTS.bubble = BUBBLE_FONTS[settings.toonBubble] || BUBBLE_FONTS.Gowun;
+}
 
 // 손그림 말풍선: 텍스트 박스를 그리고 꼬리를 target 쪽으로 낸다
 function comicBubble(ctx, text, { cx, cy, maxW = 560, size = 50, target, fill = '#FFFFFF', ink = '#1E1E1E', seed = 1, align = 'center' }) {
@@ -1182,7 +1215,7 @@ function toonMoaBox(env, side, heightRatio) {
 }
 
 async function renderToon(ctx, content, { card, st, settings, env, t, fontScale, layout, index }) {
-  const fontKey = settings.toonFont && TOON_FONTS[settings.toonFont] ? settings.toonFont : 'Jua';
+  const fontKey = settings.toonFont && TOON_FONTS[settings.toonFont] ? settings.toonFont : 'Pretendard';
   const T = TOON_FONTS[fontKey];
   const B = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
   const sample = [...new Set(cardTexts(card).filter(Boolean).join('').replace(/\s/g, ''))].join('') || '가';

@@ -69,7 +69,42 @@ export const CATEGORIES = {
   },
 };
 
-export const TOPIC_KEYS = () => Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].hidden);
+// 해피해피(육아·생활) 계정 전용 주제 — 카드 상단에 브랜드 접두어 없이 표시
+Object.assign(CATEGORIES, {
+  PARENTING: {
+    label: 'PARENTING', emoji: '👶', name: '육아', color: '#F2A65A', scope: 'happy',
+    desc: '육아 정보·지원 정책·아이 키우기 팁',
+    guide: '육아. 부모급여·아동수당·어린이집 등 정책은 대상·금액·신청 기간·신청처를 정확히. 아이 건강·발달 정보는 단정하지 말고 "소아청소년과 상담"을 권한다. 다정하고 공감하는 말투.',
+    tags: ['육아', '육아정보', '육아맘', '육아대디', '육아꿀팁'],
+  },
+  BABY: {
+    label: 'BABY', emoji: '🍼', name: '아기·유아용품', color: '#E99AA8', scope: 'happy',
+    desc: '아기용품·출산 준비·유아용품 소식',
+    guide: '아기·유아용품. 사용 월령·안전 인증·가격·구매처는 확인된 사실만. 리콜·안전 이슈는 제품명·대상·조치 방법을 정확히. 특정 브랜드 광고처럼 쓰지 말 것.',
+    tags: ['아기용품', '출산준비', '신생아', '육아템', '아기'],
+  },
+  LIVING: {
+    label: 'LIVING', emoji: '🧺', name: '생활용품', color: '#7FB7A4', scope: 'happy',
+    desc: '살림·주방·청소·수납 생활용품 정보',
+    guide: '생활용품. 사용법·가격·주의사항(세제 혼합 금지 등 안전)을 구체적으로. 효과를 과장하지 말 것.',
+    tags: ['생활용품', '살림', '살림템', '주방용품', '정리수납'],
+  },
+  ITEM: {
+    label: 'ITEM', emoji: '✨', name: '생활템', color: '#E8B64C', scope: 'happy',
+    desc: '요즘 뜨는 생활템·육아템·꿀템',
+    guide: '생활템. "왜 요즘 많이 찾는지"와 실제 쓰임새 중심으로. 가격은 변동될 수 있음을 알리고, 협찬·광고가 아님을 명확히(근거 없는 최고·1위 표현 금지).',
+    tags: ['생활템', '꿀템', '추천템', '육아템', '살림템'],
+  },
+  HAPPY: {
+    label: 'HELLO', emoji: '🧸', name: '해피해피 소개', color: '#F5C26B', hidden: true, scope: 'happy',
+    desc: '해피해피 계정 소개 게시물',
+    guide: '브랜드 소개. 다정한 반말, 짧은 문장, 따뜻한 톤.',
+    tags: ['해피해피', '첫게시물', '육아', '육아템', '생활템'],
+  },
+});
+export const HAPPY_TOPICS = ['PARENTING', 'BABY', 'LIVING', 'ITEM'];
+// 모아 계정 기본 주제 (숨김·다른 계정 전용 주제 제외)
+export const TOPIC_KEYS = () => Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].hidden && !CATEGORIES[k].scope);
 
 export const CARD_TYPES = ['HOOK', 'WHAT', 'WHY', 'SO WHAT', "MOA'S PICK", 'LIFE/CHECK', 'CTA'];
 
@@ -552,7 +587,7 @@ export function buildCurationPrompt(items) {
 
 ${list}
 
-출력은 JSON 하나만: {"items":[{"index":0,"moaScore":0~100,"summary":"60자 이내 쉬운 요약","reason":"추천 이유 30자 이내","category":"${Object.keys(CATEGORIES).join('|')}"}]}`;
+출력은 JSON 하나만: {"items":[{"index":0,"moaScore":0~100,"summary":"60자 이내 쉬운 요약","reason":"추천 이유 30자 이내","category":"${TOPIC_KEYS().join('|')}"}]}`;
 }
 
 // ---------- 첫 장 배경 이미지 생성 ----------
@@ -625,7 +660,8 @@ export async function generateImage(provider, { apiKey, model, prompt, aspect = 
 
 // ---------- 계정별 캐릭터 이름 반영 ----------
 // 기본 프롬프트·템플릿은 모아 기준이라, 다른 캐릭터 계정이면 이름·브랜드를 바꿔 넣는다
-export function personaSystem(base, { charName = '모아', charDesc = '', brand = '' } = {}) {
+export function personaSystem(base, { charName = '모아', charDesc = '', brand = '', focus = '' } = {}) {
+  if (focus) base = `${base}\n\n[이 계정의 주제 · 최우선]\n${focus}`;
   if (charName === '모아' && (!brand || brand.includes('모아'))) return base;
   let out = base.replace(/모아(?=\s?(올|와|오|봤|볼|둔|뒀|놓))/g, '골라');
   if (brand) out = out.replace('"MOA | 모아"', `"${brand}"`);
@@ -648,6 +684,32 @@ export function renameCharacter(obj, charName, emoji = '') {
 }
 
 // ---------- 첫 게시물: 모아 소개 ----------
+export function introContentHappy() {
+  const blank = { highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' } };
+  const card = (type, o) => ({ ...blank, type, body: '', layout: 'big', ...o, style: { hideLabel: true, ...(o.style || {}) } });
+  return {
+    title: '안녕! 나는 해피해피야',
+    category: 'HAPPY',
+    preset: 'intro',
+    hook: '안녕! 나는 해피해피야',
+    cards: [
+      card('HOOK', { title: '안녕!\n나는 해피해피야', highlight: '해피해피', pose: 'wave', moaSays: '반가워!', style: { moaScale: 1.15 } }),
+      card('WHAT', { title: '아기 키우다 보면\n궁금한 게\n하루에도 몇 번씩 생기지?', highlight: '궁금한 게', pose: 'curious', moaSays: '나도 그래!' }),
+      card('WHY', { title: '뭘 사야 할지,\n뭐가 진짜 좋은지\n찾아보다 지치고…', highlight: '지치고', pose: 'sleepy', moaSays: '휴…' }),
+      card('SO WHAT', { title: '그래서 해피해피가\n육아·살림 정보를\n대신 찾아보기로 했어.', highlight: '대신 찾아보기로', pose: 'idea', moaSays: '맡겨 줘!' }),
+      card("MOA'S PICK", { title: '해피해피가 알려줄 것들', layout: 'list', items: ['👶 육아 정보·지원 정책', '🍼 아기·유아용품', '🧺 생활용품·살림', '✨ 요즘 생활템'], pose: 'check', moaSays: '하나씩!' }),
+      card('LIFE/CHECK', { title: '쉽게,\n꼼꼼하게,\n엄마 아빠 눈높이로.', highlight: '엄마 아빠 눈높이로', pose: 'heart', moaSays: '약속!' }),
+      card('CTA', { title: '팔로우하고\n같이 키워요', highlight: '같이 키워요', layout: 'cta', body: '저장해 두고 필요할 때 꺼내 봐요', pose: 'wave', moaSays: '잘 부탁해!' }),
+    ],
+    moaComment: '육아·살림 정보, 해피해피가 쉽게 알려줄게!',
+    cta: '팔로우하고 같이 키워요',
+    caption: '안녕! 나는 해피해피야 🧸\n\n아기 키우다 보면 궁금한 게 하루에도 몇 번씩 생기죠.\n뭘 사야 할지, 뭐가 진짜 좋은지 찾다 보면 지치기도 하고요.\n\n그래서 해피해피가 육아 정보와 아기용품, 생활용품, 요즘 생활템을\n쉽고 꼼꼼하게 정리해 드릴게요.\n\n👶 육아 🍼 아기용품 🧺 생활용품 ✨ 생활템\n\n📌 저장해 두고 필요할 때 꺼내 보기\n🧸 팔로우하고 같이 키워요!',
+    hashtags: ['해피해피', '첫게시물', '육아', '육아정보', '육아템', '아기용품', '생활용품', '생활템', '살림템', '육아맘'],
+    sources: [],
+    factNotes: [],
+  };
+}
+
 export function introContent() {
   const blank = { highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' } };
   const card = (type, o) => ({ ...blank, type, body: '', layout: 'big', ...o, style: { hideLabel: true, ...(o.style || {}) } });
