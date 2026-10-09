@@ -4,19 +4,36 @@ import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShort
 
 export const W = 1080;
 export const H = 1920;
+// 세 플랫폼 모두 9:16 세로 1080×1920이 표준이라 영상 파일은 하나로 같이 쓴다.
+// 다른 점은 길이 제한과 화면 위에 버튼·설명이 덮이는 영역(safe: 화면 비율)이다.
 export const PLATFORMS = {
-  reels: { label: '인스타 릴스', max: 180 },
-  shorts: { label: '유튜브 쇼츠', max: 180 },
-  clip: { label: '네이버 클립', max: 180 },
+  reels: { label: '인스타 릴스', w: 1080, h: 1920, max: 180, safe: { top: 0.14, bottom: 0.35, left: 0.06, right: 0.06 }, note: '9:16 · 1080×1920 · 최대 3분 · 위 14%·아래 35%가 계정명·캡션에 가려요' },
+  shorts: { label: '유튜브 쇼츠', w: 1080, h: 1920, max: 180, safe: { top: 0.08, bottom: 0.22, left: 0.04, right: 0.14 }, note: '9:16 · 1080×1920 · 3분 이하 · 아래 제목·채널, 오른쪽 버튼에 가려요' },
+  clip: { label: '네이버 클립', w: 1080, h: 1920, max: 0, safe: { top: 0.08, bottom: 0.25, left: 0.04, right: 0.14 }, note: '9:16 · 1080×1920 · 1분 안팎 권장(최대 길이 공식 수치 미확인)' },
 };
+// 세 플랫폼 공통으로 안 가려지는 영역
+export const SAFE_ALL = { top: 0.14, bottom: 0.35, left: 0.06, right: 0.14 };
 export const SUB_STYLES = {
-  toon: '🐑 인스타툰 (흰 글씨 + 검은 테두리, 핵심어 핑크)',
+  capcut: '🎬 캡컷 기본 (흰 글씨 + 두꺼운 검은 테두리, 핵심어 노랑)',
+  toon: '🐑 인스타툰 (둥근 글씨 + 검은 테두리, 핵심어 핑크)',
   magazine: '📰 매거진 (반투명 띠 + 굵은 고딕)',
   simple: '✨ 심플 (흰 글씨 + 그림자)',
+};
+// 캡컷에서 많이 쓰는 굵은 고딕 계열 (모두 웹폰트로 불러옴)
+export const FONTS = {
+  pretendard: { label: '프리텐다드 ExtraBold (캡컷 기본 글씨 느낌)', css: '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif', weight: 800 },
+  blackhan: { label: '검은고딕 (Black Han Sans)', css: '"Black Han Sans", "Pretendard Variable", sans-serif', weight: 400 },
+  dohyeon: { label: '도현체', css: '"Do Hyeon", "Pretendard Variable", sans-serif', weight: 400 },
+  jua: { label: '주아체 (둥근 글씨)', css: '"Jua", "Pretendard Variable", sans-serif', weight: 400 },
 };
 const TITLE_FONT = '"Jua", "Pretendard Variable", sans-serif';
 const BODY_FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
 const PINK = '#F0506E';
+const YELLOW = '#FFE14D';
+const fontOf = (p) => FONTS[p?.font] || (p?.style === 'toon' ? FONTS.jua : FONTS.pretendard);
+const fontStr = (f, size) => `${f.weight} ${size}px ${f.css}`;
+export const showTitle = (p) => p?.topTitle !== false;
+export const titleText = (p) => String(p?.thumb?.title || p?.hook || p?.title || '').trim();
 
 // ---------- 시간 ----------
 export const clipLen = (c) => Math.max(0.1, (c.out ?? c.duration) - (c.in ?? 0));
@@ -61,6 +78,15 @@ const SHORTS_SYSTEM = `너는 인스타 릴스·유튜브 쇼츠·네이버 클�
 - 자막 하나는 1.2~3초, 겹치지 않게 시간순. 전체 길이를 넘지 않는다.
 - 과장·허위 금지. 사용자가 말하지 않은 사실(가격, 날짜 등)을 지어내지 않는다.
 - hl은 자막 안에 실제로 있는 핵심 단어(없으면 "").
+- 사용자가 메모처럼 대충 적어도(예: "크림 두꺼움", "웨이팅 20분") 말하듯 자연스러운 문장으로 다듬는다(예: "크림이 진짜 두꺼워요", "웨이팅은 20분 정도").
+- 말투·분위기 요청(예: "귀엽고 발랄하게")은 자막에 그대로 넣지 말고 문체에 반영한다.
+- 메모 한 줄을 자막 하나로 끝내지 말고, 장면을 보고 설명·리액션·정리 자막을 더해 영상 길이를 채운다(대략 2~3초에 자막 하나).
+- 마지막 자막은 저장·팔로우를 부르는 한 마디.
+
+[상단 제목 = 썸네일 제목]
+- thumbnail.title은 영상 처음부터 끝까지 화면 맨 위에 고정으로 떠 있고, 썸네일에도 같은 문구가 쓰인다.
+- 2줄 이내, 한 줄 12자 안팎(줄바꿈 \\n). 무슨 영상인지 한눈에 알 수 있게 + 궁금하게.
+- 자막은 화면 가운데에 나오므로 제목과 같은 말을 반복하지 않는다.
 
 [클립 구간]
 - 목표 길이가 있으면 각 클립의 in/out(초)을 정해 전체 길이를 맞춘다. 장면이 가장 잘 보이는 구간을 고른다. 원본 길이를 넘지 않는다.
@@ -123,33 +149,114 @@ export function applyPlan(p, plan) {
   return p;
 }
 
-// AI 키가 없을 때: 설명을 문장 단위로 나눠 자막·캡션을 만든다
-export function templatePlan(p, handle) {
-  const sentences = String(p.desc || '').split(/(?<=[.!?。…~])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
-  const chunks = [];
-  for (const s of sentences) {
-    const words = s.split(/\s+/);
+// ---------- AI 없이 만들기 (규칙 기반 다듬기) ----------
+const TONE_RE = /(느낌|톤|분위기|말투|스타일|컨셉|콘셉트)(으로|로)?(\s*(해|써|만들어)\s*(줘|주세요)?)?\s*[.!~]*$|^(?!.*가게[.!~]*$)[가-힣\s,]{0,14}게\s*(해\s*줘|써\s*줘|만들어\s*줘|부탁해요?)?[.!~]*$/;
+const KIND = [
+  { re: /리뷰|후기|다녀|가봤|먹어|마셔|써봤|사봤|내돈내산|방문|맛집|카페/, suffix: '솔직 후기', end: '저장해두고 꼭 가보세요!' },
+  { re: /방법|꿀팁|팁|하는\s?법|노하우|정리|순서/, suffix: '꿀팁 정리', end: '저장해두고 따라 해보세요!' },
+  { re: /브이로그|일상|하루|vlog/i, suffix: '하루 기록', end: '오늘 하루도 수고했어요!' },
+  { re: /언박싱|개봉|신상|구매|하울/, suffix: '언박싱', end: '궁금한 건 댓글로 물어보세요!' },
+  { re: /여행|투어|코스|숙소/, suffix: '여행 코스', end: '저장해두고 여행 갈 때 보기!' },
+];
+const TAIL_RE = /\s*(리뷰|후기|소개|방문기|브이로그|정리|꿀팁|영상|언박싱)(\s*영상)?\s*$/;
+// 메모체 끝말을 말하는 말투로: 들어감→들어가요, 있음→있어요, 6,500원임→6,500원이에요
+export function speakify(t) {
+  let s = String(t).trim().replace(/[.。]+$/, '');
+  const rules = [
+    [/있음$/, '있어요'], [/없음$/, '없어요'], [/좋음$/, '좋아요'], [/많음$/, '많아요'], [/같음$/, '같아요'], [/맛있음$/, '맛있어요'],
+    [/했음$/, '했어요'], [/였음$/, '였어요'], [/됨$/, '돼요'], [/함$/, '해요'], [/감$/, '가요'], [/옴$/, '와요'], [/봄$/, '봐요'], [/줌$/, '줘요'], [/큼$/, '커요'], [/짐$/, '져요'],
+    [/([가-힣])임$/, '$1이에요'], [/([가-힣])음$/, '$1어요'],
+  ];
+  for (const [re, to] of rules) if (re.test(s)) { s = s.replace(re, to); break; }
+  return s.replace(/이이에요$/, '이에요').replace(/(\d)이에요$/, '$1이에요');
+}
+// 긴 문장은 연결어(고·는데·서·지만·쉼표)에서 끊는다
+function splitClauses(sentence, max = 16) {
+  if (sentence.replace(/\s/g, '').length <= max) return [sentence];
+  const parts = sentence.split(/(?<=[가-힣]고|는데|어서|아서|해서|지만|면서|[,，])\s+/).map((x) => x.replace(/[,，]$/, '').trim()).filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    if (part.replace(/\s/g, '').length <= 24) { out.push(part); continue; }
+    const words = part.split(/\s+/);
     let cur = '';
     for (const w of words) {
-      if ((cur + ' ' + w).trim().length > 16 && cur) { chunks.push(cur.trim()); cur = w; } else cur = `${cur} ${w}`;
+      if ((cur + w).replace(/\s/g, '').length > 14 && cur) { out.push(cur.trim()); cur = w; } else cur = `${cur} ${w}`;
     }
-    if (cur.trim()) chunks.push(cur.trim());
+    if (cur.trim()) out.push(cur.trim());
   }
-  if (!chunks.length) chunks.push('이거 보고 가세요!');
-  const hook = chunks[0].length <= 14 ? chunks[0] : `${chunks[0].slice(0, 12)}…`;
-  const total = totalLen(p);
-  const tagWords = [...new Set((p.desc || '').match(/[가-힣A-Za-z0-9]{2,8}/g) || [])].slice(0, 6);
+  return out;
+}
+// 한 자막이 길면 가운데 단어에서 두 줄로
+function twoLines(t) {
+  if (t.replace(/\s/g, '').length <= 13 || t.includes('\n')) return t;
+  const words = t.split(' ');
+  if (words.length < 2) return t;
+  let best = 1;
+  let bestDiff = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const d = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  }
+  return `${words.slice(0, best).join(' ')}\n${words.slice(best).join(' ')}`;
+}
+function pickHl(t) {
+  const num = t.match(/\d[\d,.]*\s?(만원|천원|원|분|시간|초|개|%|km|kg|층|번|위|살|cm)?/);
+  if (num) return num[0].trim();
+  const em = t.match(/(?:엄청|진짜|완전|정말|너무|제일|가장|무조건|대박)\s+([가-힣A-Za-z]{1,6})/);
+  return em ? em[1] : '';
+}
+const JOSA_RE = /(으로|에서|까지|부터|이랑|하고|에게|이|가|은|는|을|를|에|의|도|로|와|과|랑)$/;
+const STOP = new Set(['진짜', '엄청', '완전', '정말', '너무', '그리고', '근데', '그래서', '이거', '저거', '여기', '오늘', '느낌', '분위기', '발랄', '귀엽', '정도', '하나', '이번']);
+function keywords(text) {
+  const out = [];
+  for (const raw of String(text).split(/[\s.,!?~·]+/)) {
+    let w = raw.replace(/[^가-힣A-Za-z0-9]/g, '');
+    if (/\d/.test(w) && !/[가-힣A-Za-z]{2,}/.test(w)) continue;
+    w = w.replace(JOSA_RE, '');
+    if (w.length < 2 || w.length > 10 || STOP.has(w)) continue;
+    if (/(요|다|음|함|됨|감|게|고|서|임|해|져|어|아|긴|된|던)$/.test(w)) continue;
+    if (!out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+export function templatePlan(p, handle) {
+  const raw = String(p.desc || '').split(/(?<=[.!?。…~])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  const tone = raw.filter((x) => TONE_RE.test(x));
+  const facts = raw.filter((x) => !TONE_RE.test(x));
+  const cute = /귀엽|발랄|신나|유쾌|밝게|텐션/.test(tone.join(' ') + p.desc);
+  const first = facts[0] || '오늘의 영상';
+  const kind = KIND.find((k) => k.re.test(p.desc || '')) || { suffix: '', end: '도움 됐다면 저장해 두세요!' };
+  // 주제: 첫 문장 앞부분에서 "리뷰/후기" 같은 꼬리를 뗀다
+  let topic = splitClauses(first.replace(/[.!?~]+$/, ''), 30)[0].replace(TAIL_RE, '').trim() || first;
+  if (topic.length > 18) topic = topic.split(/\s+/).reduceRight((acc, w) => ((`${w} ${acc}`).trim().length <= 16 ? `${w} ${acc}`.trim() : acc), '') || topic.slice(0, 16);
+  const shortTopic = topic.split(/\s+/).reduceRight((acc, w) => ((`${w} ${acc}`).trim().length <= 9 ? `${w} ${acc}`.trim() : acc), '') || topic.slice(0, 9);
+  const title = kind.suffix ? `${topic}\n${kind.suffix}` : twoLines(topic);
+  const hook = kind.suffix ? `${shortTopic}, 어땠냐면요` : `${shortTopic} 알고 있었어?`;
+
+  // 본문: 첫 문장이 주제뿐이면 빼고, 나머지는 절 단위로 나눠 말투를 다듬는다
+  const bodySrc = TAIL_RE.test(first.replace(/[.!?~]+$/, '')) && facts.length > 1 ? facts.slice(1) : facts;
+  const body = [];
+  for (const sen of bodySrc) for (const c of splitClauses(sen.replace(/[.!?~]+$/, ''))) body.push(speakify(c));
+  const points = body.filter((x) => x.length > 1).slice(0, 14);
+  const bang = (t) => (cute && !/[!?~]$/.test(t) && /요$/.test(t) ? `${t}!` : t);
+  const texts = [hook, ...points.map(bang), kind.end, '팔로우하고 다음 영상도 보기'];
+  const total = totalLen(p) || texts.length * 2.5;
+  const subs = distribute(texts.map(twoLines), total).map((sb) => ({ ...sb, hl: pickHl(sb.text.replace('\n', ' ')) }));
+  const kw = keywords(`${topic} ${facts.join(' ')}`).slice(0, 8);
+  const bullet = points.slice(0, 5).map((x) => `✔️ ${x}`).join('\n');
+  const oneLine = title.replace(/\n/g, ' ');
   return {
-    title: hook,
+    title: oneLine,
     hook,
-    subtitles: distribute(chunks.slice(0, 12), total),
-    thumbnail: { title: hook, highlight: tagWords[0] || '', clip: 0, time: 1 },
+    subtitles: subs,
+    thumbnail: { title, highlight: kind.suffix || kw[0] || '', clip: 0, time: 1 },
     captions: {
-      instagram: { text: `${hook}\n\n${sentences.slice(0, 3).join('\n')}\n\n📌 저장해 두고 다시 보기\n💬 친구에게 공유하기\n🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기`, hashtags: ['릴스', '숏폼', '모아', ...tagWords] },
-      youtube: { title: `${hook} #Shorts`, description: sentences.slice(0, 2).join(' '), tags: ['Shorts', '쇼츠', ...tagWords] },
-      naver: { title: hook, description: sentences.slice(0, 2).join(' '), tags: ['클립', ...tagWords] },
+      instagram: { text: `${oneLine} 👀\n\n${bullet}\n\n📌 저장해 두고 다시 보기\n💬 같이 볼 친구 태그하기\n🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기`, hashtags: [...kw, '릴스', '숏폼', '모아'].slice(0, 15) },
+      youtube: { title: `${oneLine} #Shorts`.slice(0, 100), description: `${points.slice(0, 3).join(' · ')}\n\n${handle} 구독하고 더 보기`, tags: [...kw, 'Shorts', '쇼츠'].slice(0, 10) },
+      naver: { title: oneLine.slice(0, 30), description: points.slice(0, 2).join(' · '), tags: [...kw, '클립'].slice(0, 10) },
     },
-    notes: ['템플릿 모드(AI 미사용)라 설명 문장을 그대로 나눠 자막으로 넣었어요. 문구와 타이밍을 다듬어 주세요.'],
+    notes: ['AI 없이 규칙으로 만든 초안이에요. 메모를 말투로 바꾸고 훅·정리·팔로우 자막을 붙였지만, 장면을 보고 새 문장을 쓰지는 못해요. 설정에 GPT·Gemini·Claude 중 아무 키 하나만 넣어도 "✨ AI로 만들기"가 영상을 보고 다듬어 줘요.'],
   };
 }
 
@@ -241,63 +348,117 @@ function richLine(ctx, line, hl, cx, y, { fill, accent, stroke, strokeW }) {
   }
 }
 
-export function drawSubtitle(ctx, sub, style, isHook) {
+// 캡컷식 외곽선 글씨: 두꺼운 검은 테두리를 먼저 칠하고 흰 글씨를 얹는다
+function outlinedLines(ctx, lines, hl, cx, yCenter, size, f, { fill = '#FFFFFF', accent = YELLOW, stroke = '#000000', ratio = 0.24, lh = 1.22 } = {}) {
+  ctx.font = fontStr(f, size);
+  const step = size * lh;
+  const y0 = yCenter - ((lines.length - 1) * step) / 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = size * 0.12; ctx.shadowOffsetY = size * 0.05;
+  lines.forEach((l, i) => { ctx.lineWidth = size * ratio; ctx.strokeStyle = stroke; ctx.lineJoin = 'round'; ctx.miterLimit = 2; ctx.textAlign = 'center'; ctx.strokeText(l, cx, y0 + i * step); });
+  ctx.restore();
+  lines.forEach((l, i) => richLine(ctx, l, hl, cx, y0 + i * step, { fill, accent }));
+  return { top: y0 - step / 2, bottom: y0 + (lines.length - 0.5) * step };
+}
+// 글자 크기를 줄여 가며 maxW·maxLines 안에 맞춘다
+function fitLines(ctx, text, f, size, minSize, maxW, maxLines) {
+  let lines;
+  for (;; size -= 4) {
+    ctx.font = fontStr(f, size);
+    lines = wrapText(ctx, text, maxW, 99);
+    if ((lines.length <= maxLines && lines.every((l) => ctx.measureText(l).width <= maxW)) || size <= minSize) break;
+  }
+  return { lines: lines.slice(0, maxLines), size };
+}
+
+// 상단 고정 제목 (= 썸네일 제목). 세 플랫폼 공통 안전 영역(위 14%) 바로 아래부터
+export function drawTitle(ctx, p) {
+  const text = titleText(p);
+  if (!text) return;
+  const f = fontOf(p);
+  ctx.save();
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const { lines, size } = fitLines(ctx, text, f, 100, 60, W * (1 - SAFE_ALL.left - SAFE_ALL.left) - 20, 3);
+  const top = H * SAFE_ALL.top + 16;
+  const step = size * 1.2;
+  outlinedLines(ctx, lines, p.thumb?.highlight, W / 2, top + step / 2 + ((lines.length - 1) * step) / 2, size, f, { accent: YELLOW });
+  ctx.restore();
+}
+
+// 대본 자막: 기본은 화면 정가운데 흰 글씨 + 검은 테두리
+export function drawSubtitle(ctx, sub, p, isHook) {
   if (!sub?.text) return;
+  const style = p.style || 'capcut';
+  const f = fontOf(p);
+  const top = showTitle(p);
+  const bigHook = isHook && !top; // 상단 제목을 끄면 첫 자막을 위쪽에 크게
+  const cy = bigHook ? H * 0.22 : (p.subPos === 'lower' ? H * 0.6 : H * 0.5);
   ctx.save();
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   if (style === 'magazine') {
-    const size = isHook ? 84 : 62;
+    const size = bigHook ? 84 : 66;
     ctx.font = `800 ${size}px ${BODY_FONT}`;
     const lines = wrapText(ctx, sub.text, 900, 2);
     const lh = size * 1.3;
     const bh = lines.length * lh + 44;
-    const y0 = isHook ? H * 0.16 : H * 0.70 - bh / 2;
+    const y0 = cy - bh / 2;
     const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 80;
     ctx.fillStyle = 'rgba(15,15,15,0.62)';
     ctx.beginPath(); ctx.roundRect((W - bw) / 2, y0, bw, bh, 22); ctx.fill();
-    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 22 + lh * (i + 0.5), { fill: '#FFFFFF', accent: '#FFE14D' }));
+    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 22 + lh * (i + 0.5), { fill: '#FFFFFF', accent: YELLOW }));
   } else if (style === 'simple') {
-    const size = isHook ? 88 : 64;
-    ctx.font = `700 ${size}px ${BODY_FONT}`;
-    ctx.shadowColor = 'rgba(0,0,0,0.75)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 3;
+    const size = bigHook ? 88 : 70;
+    ctx.font = fontStr(f, size);
+    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 3;
     const lines = wrapText(ctx, sub.text, 920, 2);
     const lh = size * 1.25;
-    const y0 = isHook ? H * 0.18 : H * 0.70 - (lines.length * lh) / 2;
-    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + lh * (i + 0.5), { fill: '#FFFFFF', accent: '#FFE14D' }));
-  } else {
-    // 인스타툰: 둥근 손글씨 + 두꺼운 검은 테두리, 훅은 위쪽에 흰 말풍선 박스
-    const size = isHook ? 104 : 84;
+    const y0 = cy - ((lines.length - 1) * lh) / 2;
+    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + lh * i, { fill: '#FFFFFF', accent: YELLOW }));
+  } else if (style === 'toon' && bigHook) {
+    // 인스타툰 훅: 흰 말풍선 박스
+    const size = 104;
     ctx.font = `700 ${size}px ${TITLE_FONT}`;
-    const lines = wrapText(ctx, sub.text, isHook ? 880 : 920, 2);
+    const lines = wrapText(ctx, sub.text, 880, 2);
     const lh = size * 1.2;
-    if (isHook) {
-      const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 90;
-      const bh = lines.length * lh + 60;
-      const y0 = H * 0.13;
-      ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#141414'; ctx.lineWidth = 7;
-      ctx.beginPath(); ctx.roundRect((W - bw) / 2, y0, bw, bh, 40); ctx.fill(); ctx.stroke();
-      lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 30 + lh * (i + 0.5), { fill: '#141414', accent: PINK }));
-    } else {
-      const y0 = H * 0.70 - (lines.length * lh) / 2;
-      lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + lh * (i + 0.5), { fill: '#FFFFFF', accent: '#FFD84D', stroke: '#141414', strokeW: 14 }));
-    }
+    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 90;
+    const bh = lines.length * lh + 60;
+    const y0 = H * 0.15;
+    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#141414'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.roundRect((W - bw) / 2, y0, bw, bh, 40); ctx.fill(); ctx.stroke();
+    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 30 + lh * (i + 0.5), { fill: '#141414', accent: PINK }));
+  } else {
+    // 캡컷 기본 / 인스타툰: 흰 글씨 + 두꺼운 검은 테두리
+    const { lines, size } = fitLines(ctx, sub.text, f, bigHook ? 100 : 88, 56, W * 0.86, 2);
+    outlinedLines(ctx, lines, sub.hl, W / 2, cy, size, f, { accent: style === 'toon' ? PINK : YELLOW });
   }
   ctx.restore();
 }
 
-function drawSafeZone(ctx) {
+// 플랫폼별 가림 영역 (key: reels | shorts | clip | all)
+export function drawSafeZone(ctx, key = 'all') {
+  const z = key === 'all' ? SAFE_ALL : PLATFORMS[key]?.safe || SAFE_ALL;
   ctx.save();
-  ctx.fillStyle = 'rgba(240,80,110,0.18)';
-  ctx.fillRect(0, H * 0.8, W, H * 0.2);
-  ctx.fillRect(W - 150, H * 0.45, 150, H * 0.35);
-  ctx.fillRect(0, 0, W, 150);
-  ctx.fillStyle = 'rgba(240,80,110,0.9)'; ctx.font = `700 30px ${BODY_FONT}`;
-  ctx.fillText('플랫폼 버튼·설명에 가려지는 영역', 40, H * 0.8 + 50);
+  ctx.fillStyle = 'rgba(240,80,110,0.22)';
+  ctx.fillRect(0, 0, W, H * z.top);
+  ctx.fillRect(0, H * (1 - z.bottom), W, H * z.bottom);
+  ctx.fillRect(0, H * z.top, W * z.left, H * (1 - z.top - z.bottom));
+  ctx.fillRect(W * (1 - z.right), H * z.top, W * z.right, H * (1 - z.top - z.bottom));
+  ctx.strokeStyle = 'rgba(240,80,110,0.95)'; ctx.lineWidth = 4; ctx.setLineDash([18, 12]);
+  ctx.strokeRect(W * z.left, H * z.top, W * (1 - z.left - z.right), H * (1 - z.top - z.bottom));
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#fff'; ctx.font = `800 34px ${BODY_FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`${key === 'all' ? '세 플랫폼 공통' : PLATFORMS[key].label} — 분홍 영역은 버튼·설명에 가려져요`, 30, H * (1 - z.bottom) + 56);
   ctx.restore();
 }
 
 const activeSub = (p, t) => (p.subtitles || []).find((s) => t >= s.start && t < s.end);
 const isHookSub = (p, s) => s && p.subtitles?.[0] === s && s.start < 2.5;
+
+// 한 프레임 그리기 (미리보기·녹화·오버레이 공용)
+export function drawOverlay(ctx, p, t, { title = true, subtitles = true } = {}) {
+  if (title && showTitle(p)) drawTitle(ctx, p);
+  if (subtitles) { const s = activeSub(p, t); drawSubtitle(ctx, s, p, isHookSub(p, s)); }
+}
 
 // ---------- 재생기 (미리보기·녹화 공용) ----------
 let sharedAC = null;
@@ -324,15 +485,15 @@ export class Sequencer {
     }
     return this.audio;
   }
-  drawAt(v, t, { subtitles = true, safe = false } = {}) {
+  drawAt(v, t, { subtitles = true, title = true, safe = false } = {}) {
     const ctx = this.ctx;
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
     if (v) drawVideo(ctx, v, this.p.fit);
-    if (subtitles) { const s = activeSub(this.p, t); drawSubtitle(ctx, s, this.p.style, isHookSub(this.p, s)); }
-    if (safe) drawSafeZone(ctx);
+    drawOverlay(ctx, this.p, t, { title, subtitles });
+    if (safe) drawSafeZone(ctx, safe === true ? 'all' : safe);
   }
   stop() { this.stopFlag = true; this.vids.forEach((v) => v.pause()); }
-  async play({ subtitles = true, safe = false, onTime, speakers = true } = {}) {
+  async play({ subtitles = true, title = true, safe = false, onTime, speakers = true } = {}) {
     this.stopFlag = false;
     const { ac, speaker } = this.ensureAudio();
     if (ac.state === 'suspended') await ac.resume();
@@ -344,13 +505,13 @@ export class Sequencer {
       const a = c.in || 0;
       const b = c.out ?? c.duration;
       await seek(v, a);
-      this.drawAt(v, offset, { subtitles, safe });
+      this.drawAt(v, offset, { subtitles, title, safe });
       await v.play().catch(() => {});
       await new Promise((resolve) => {
         const tick = () => {
           if (this.stopFlag || v.ended || v.currentTime >= b - 0.02) { v.pause(); resolve(); return; }
           const t = offset + (v.currentTime - a);
-          this.drawAt(v, t, { subtitles, safe });
+          this.drawAt(v, t, { subtitles, title, safe });
           onTime?.(t);
           requestAnimationFrame(tick);
         };
@@ -360,7 +521,7 @@ export class Sequencer {
     }
     onTime?.(offset);
   }
-  async record({ subtitles = true, onProgress } = {}) {
+  async record({ subtitles = true, title = true, onProgress } = {}) {
     const { dest } = this.ensureAudio();
     // H.264 MP4를 가장 먼저 시도한다(릴스·쇼츠·클립 업로드 호환). 안 되면 WEBM, 마지막으로 사파리용 일반 MP4
     const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
@@ -372,15 +533,29 @@ export class Sequencer {
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const stopped = new Promise((res) => { rec.onstop = res; });
     const total = totalLen(this.p);
-    this.drawAt(this.vids[0], 0, { subtitles });
+    this.drawAt(this.vids[0], 0, { subtitles, title });
     rec.start(500);
-    await this.play({ subtitles, speakers: false, onTime: (t) => onProgress?.(Math.min(1, t / total)) });
+    await this.play({ subtitles, title, speakers: false, onTime: (t) => onProgress?.(Math.min(1, t / total)) });
     await new Promise((r) => setTimeout(r, 250));
     rec.stop();
     await stopped;
     const ext = mime.includes('mp4') ? 'mp4' : 'webm';
     return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext };
   }
+}
+
+// ---------- 글꼴·오버레이 ----------
+export async function loadFonts(p, sample = '가나다') {
+  const f = fontOf(p);
+  try { await Promise.all([document.fonts.load(fontStr(f, 80), sample || '가'), document.fonts.load(`800 66px ${BODY_FONT}`, '가')]); } catch { /* 대체 폰트 */ }
+}
+// 캡컷 오버레이용: 투명 배경에 상단 제목만 (위치 그대로 1080×1920)
+export function renderTitleOverlay(canvas, p) {
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  drawTitle(ctx, p);
+  return canvas;
 }
 
 // ---------- 썸네일 ----------
@@ -395,16 +570,13 @@ export async function renderThumb(canvas, p, vids, env) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.45, 'rgba(0,0,0,0.15)'); g.addColorStop(0.75, 'rgba(0,0,0,0.05)'); g.addColorStop(1, 'rgba(0,0,0,0.5)');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  const title = th.title || p.hook || p.title || '';
-  try { await document.fonts.load(`700 120px ${TITLE_FONT}`, title || '가'); } catch { /* 대체 폰트 */ }
-  ctx.textBaseline = 'middle';
-  let size = 150;
-  let lines;
-  do { ctx.font = `700 ${size}px ${TITLE_FONT}`; lines = wrapText(ctx, title, 940, 3); size -= 6; } while ((lines.length > 3 || lines.some((l) => ctx.measureText(l).width > 960)) && size > 70);
-  size += 6;
-  const lh = size * 1.12;
-  const y0 = H * 0.22 - (lines.length * lh) / 2 + lh / 2;
-  lines.forEach((l, i) => richLine(ctx, l, th.highlight, W / 2, y0 + i * lh, { fill: '#FFFFFF', accent: PINK, stroke: '#141414', strokeW: 18 }));
+  // 상단 고정 제목과 같은 문구·글씨체로 크게
+  const title = titleText(p);
+  const f = fontOf(p);
+  await loadFonts(p, title);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const { lines, size } = fitLines(ctx, title, f, 150, 72, 940, 3);
+  outlinedLines(ctx, lines, th.highlight, W / 2, H * 0.3, size, f, { accent: YELLOW, lh: 1.15 });
   // 모아 + 계정
   if (env?.moa) {
     const mh = 420;
@@ -425,21 +597,50 @@ export function captionText(p, key) {
   return `${c.title}\n\n${c.description}\n\n${tag(c.tags)}`.trim();
 }
 
-export function guideText(p) {
-  const lines = ['MOA 숏폼 — 캡컷 편집 안내', '', `제목: ${p.title}`, `전체 길이: ${totalLen(p).toFixed(1)}초 (9:16, 1080×1920)`, ''];
-  lines.push('[방법 1 · 가장 쉬움] cut_no_subtitles 영상이 들어 있다면');
-  lines.push('  1) 캡컷 PC/웹에서 새 프로젝트 → cut_no_subtitles 영상 불러오기 → 비율 9:16');
-  lines.push('  2) 상단 메뉴 텍스트(캡션) → 자막 가져오기 → subtitles.srt 선택 → 시간이 자동으로 맞습니다');
-  lines.push('  3) 자막 하나를 골라 글꼴·크기·색을 바꾸고 "모든 자막에 적용"');
+export function titleSrt(p) {
+  const t = titleText(p).replace(/\n+/g, '\n');
+  return t ? toSrt([{ start: 0, end: totalLen(p), text: t }]) : '';
+}
+
+export function guideText(p, { cutHasTitle = false } = {}) {
+  const f = fontOf(p);
+  const lines = ['MOA 숏폼 — 캡컷 편집 안내', '', `제목: ${p.title}`, `전체 길이: ${totalLen(p).toFixed(1)}초`, ''];
+  lines.push('[영상 크기] 인스타 릴스·유튜브 쇼츠·네이버 클립 모두 9:16 세로 1080×1920 하나로 올리면 됩니다.');
+  Object.values(PLATFORMS).forEach((pf) => lines.push(`  - ${pf.label}: ${pf.note}`));
   lines.push('');
-  lines.push('[방법 2] 원본 클립으로 직접 배치할 때 — 아래 순서·구간대로 자르고 이어 붙인 뒤 subtitles.srt를 가져오세요');
+  lines.push('[이 묶음에 든 것]');
+  lines.push(`  cut_*.mp4/webm      클립을 순서·구간대로 이어 붙인 9:16 영상${cutHasTitle ? ' (상단 제목 포함, 대본 자막 없음)' : ' (자막 없음)'}`);
+  lines.push('  subtitles.srt       대본 자막 (시간 맞춰짐)');
+  lines.push('  title.srt           상단 제목 (0초~끝까지 한 줄)');
+  lines.push('  title_overlay.png   상단 제목을 위치까지 그대로 그린 투명 PNG (1080×1920)');
+  lines.push('  thumbnail.png       릴스 커버 / 쇼츠·클립 썸네일');
+  lines.push('  captions.txt        플랫폼별 제목·설명·해시태그');
+  lines.push('');
+  lines.push('[캡컷 배치 순서 · PC/웹]');
+  lines.push('  1) 새 프로젝트 → cut 영상 불러오기 → 비율 9:16');
+  if (!cutHasTitle) {
+    lines.push('  2) 상단 제목: title_overlay.png를 "오버레이(PIP)"로 올리고 길이를 영상 끝까지 늘리기');
+    lines.push('     → 1080×1920 투명 PNG라 크기·위치를 건드리지 않아도 미리보기와 같은 자리에 붙습니다');
+    lines.push('     (글자를 캡컷에서 직접 고치고 싶으면 대신 텍스트 → 자막 가져오기 → title.srt)');
+  } else {
+    lines.push('  2) 상단 제목은 cut 영상에 이미 들어 있어요');
+  }
+  lines.push('  3) 텍스트(캡션) → 자막 가져오기(로컬 자막) → subtitles.srt → 시간이 자동으로 맞습니다');
+  lines.push('  4) 자막 하나를 골라 아래처럼 바꾸고 "모든 자막에 적용"');
+  lines.push(`     · 글꼴: ${f.label.replace(/\s*\(.*\)$/, '')} 계열 굵은 고딕 (캡컷 글꼴 목록에 없으면 비슷한 굵은 고딕)`);
+  lines.push('     · 색: 흰색 / 테두리(획): 검정, 두께 크게 / 그림자 약하게');
+  lines.push(`     · 위치: ${p.subPos === 'lower' ? '화면 세로 60% 지점' : '화면 정가운데 (세로 위치 0)'} · 크기: 가로 폭의 80% 안쪽`);
+  lines.push('');
+  lines.push('[캡컷 자동 배치가 안 되는 이유]');
+  lines.push('  캡컷은 외부에서 프로젝트를 만들어 넣는 공식 기능(API)을 제공하지 않습니다.');
+  lines.push('  그래서 시간은 SRT로, 제목 위치는 투명 PNG로 맞춰 손이 가장 덜 가게 묶었어요.');
+  lines.push('  디자인까지 똑같이 박힌 영상이 필요하면 MOA의 "자막 입힌 완성 영상"을 쓰면 됩니다.');
+  lines.push('');
+  lines.push('[원본 클립으로 직접 자를 때 — 순서·구간]');
   p.clips.forEach((c, i) => lines.push(`  ${String(i + 1).padStart(2, '0')}. ${c.name}  →  ${fmt(c.in || 0)} ~ ${fmt(c.out ?? c.duration)} (${clipLen(c).toFixed(1)}초)`));
   lines.push('');
   lines.push('※ 자막 파일 가져오기는 캡컷 PC·웹에서만 됩니다(모바일 앱은 미지원). 파일은 UTF-8로 저장되어 있어요.');
   lines.push('※ 음악은 저작권 문제가 없도록 각 플랫폼의 음원 라이브러리를 사용하세요.');
-  lines.push('');
-  lines.push('[썸네일] thumbnail.png (1080×1920) — 릴스 커버 / 쇼츠·클립 썸네일로 사용');
-  lines.push('[캡션] captions.txt — 플랫폼별 제목·설명·해시태그');
   return lines.join('\n');
 }
 
@@ -495,7 +696,7 @@ export function createShortsViews(ui) {
       const files = [...e.target.files];
       if (!files.length) return;
       const s = getSettings();
-      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, style: s.deckTheme === 'magazine' ? 'magazine' : 'toon', fit: 'cover', subtitles: [], captions: null, thumb: null, notes: [] };
+      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, style: 'capcut', font: 'pretendard', topTitle: true, subPos: 'middle', fit: 'cover', subtitles: [], captions: null, thumb: null, notes: [] };
       saveShort(p);
       const n = await addFiles(p, files);
       if (n) location.hash = `#/shorts/${p.id}`; else { await deleteShort(p.id); listView(); }
@@ -540,9 +741,13 @@ export function createShortsViews(ui) {
           <div class="two">
             <div class="field"><label for="sh-target">목표 길이</label><select id="sh-target">${[[0, '원본 그대로'], [15, '15초'], [30, '30초'], [60, '60초'], [90, '90초']].map(([v, l]) => `<option value="${v}" ${+p.target === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
             <div class="field"><label for="sh-style">자막 스타일</label><select id="sh-style">${Object.entries(SUB_STYLES).map(([k, v]) => `<option value="${k}" ${p.style === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label for="sh-font">글씨체</label><select id="sh-font">${Object.entries(FONTS).map(([k, v]) => `<option value="${k}" ${fontOf(p) === v ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+            <div class="field"><label for="sh-pos">대본 자막 위치</label><select id="sh-pos"><option value="middle" ${p.subPos !== 'lower' ? 'selected' : ''}>화면 정가운데</option><option value="lower" ${p.subPos === 'lower' ? 'selected' : ''}>가운데보다 약간 아래</option></select></div>
             <div class="field"><label for="sh-fit">가로 영상 배치</label><select id="sh-fit"><option value="cover" ${p.fit !== 'blur' ? 'selected' : ''}>꽉 채우기 (가장자리 잘림)</option><option value="blur" ${p.fit === 'blur' ? 'selected' : ''}>흐린 배경 + 원본 비율</option></select></div>
             <div class="field"><label>플랫폼</label><div class="row small">${Object.entries(PLATFORMS).map(([k, v]) => `<label><input type="checkbox" data-pf="${k}" ${p.platforms?.[k] ? 'checked' : ''}> ${v.label}</label>`).join('')}</div></div>
           </div>
+          <label class="small check-line"><input type="checkbox" id="sh-toptitle" ${showTitle(p) ? 'checked' : ''}><span>맨 위에 썸네일 제목을 처음부터 끝까지 고정으로 보여 주기</span></label>
+          <div class="pf-sizes small">${Object.values(PLATFORMS).map((v) => `<div><b>${v.label}</b> ${esc(v.note)}</div>`).join('')}<div class="muted">→ 세 플랫폼 모두 1080×1920 영상 하나로 올리면 돼요. 글자는 미리보기의 "가림 영역"으로 확인하세요.</div></div>
           <div class="row">
             <select id="sh-prov">${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}" ${k === (keys[s.provider] ? s.provider : availableProviders()[0]) ? 'selected' : ''}>${v.label}${keys[k] ? '' : ' (키 없음)'}</option>`).join('')}</select>
             <button class="btn primary" id="sh-ai">✨ AI로 자막·썸네일·캡션 만들기</button>
@@ -551,7 +756,7 @@ export function createShortsViews(ui) {
         </section>
         <section class="panel" style="margin-top:14px">
           <div class="row"><h3 style="margin:0">③ 자막</h3><span class="spacer"></span><button class="btn sm" id="sub-even">길이에 맞게 자동 배분</button><button class="btn sm" id="sub-add">+ 자막 추가</button></div>
-          <p class="small muted" style="margin:6px 0 10px">시간은 이어 붙인 전체 영상 기준(초)이에요. 첫 자막(2.5초 안)은 위쪽에 크게 나오는 훅 자막이에요.</p>
+          <p class="small muted" style="margin:6px 0 10px">시간은 이어 붙인 전체 영상 기준(초)이에요. 대본 자막은 화면 가운데에 흰 글씨 + 검은 테두리로 나와요. 맨 위 고정 제목은 ④ 썸네일 제목과 같아요. Enter로 줄을 바꾸면 두 줄 자막이 돼요.</p>
           <div id="sh-subs"></div>
         </section>
       </div>
@@ -561,14 +766,14 @@ export function createShortsViews(ui) {
           <canvas id="sh-stage" width="${W}" height="${H}"></canvas>
           <div class="row" style="justify-content:center;margin-top:8px">
             <button class="btn sm primary" id="pv-play">▶ 재생</button><button class="btn sm" id="pv-stop">■ 정지</button>
-            <label class="small"><input type="checkbox" id="pv-safe"> 가림 영역 표시</label>
+            <select id="pv-safe" class="small" title="가림 영역 표시"><option value="">가림 영역 끄기</option><option value="all">가림 영역: 3개 공통</option>${Object.entries(PLATFORMS).map(([k, v]) => `<option value="${k}">가림 영역: ${v.label}</option>`).join('')}</select>
             <span class="small muted" id="pv-time">0:00.0</span>
           </div>
         </section>
         <section class="panel" style="margin-top:14px">
           <h3>④ 썸네일</h3>
           <canvas id="sh-thumb" width="${W}" height="${H}" style="width:100%;max-width:220px;display:block;margin:0 auto 10px;border-radius:12px"></canvas>
-          <div class="field"><label>썸네일 제목 (줄바꿈 가능)</label><textarea id="th-title" rows="2"></textarea></div>
+          <div class="field"><label>썸네일 제목 = 영상 맨 위 고정 제목 (줄바꿈 가능)</label><textarea id="th-title" rows="2"></textarea></div>
           <div class="two">
             <div class="field"><label>강조어</label><input type="text" id="th-hl"></div>
             <div class="field"><label>장면 (클립·초)</label><div class="row" style="flex-wrap:nowrap"><select id="th-clip"></select><input type="number" id="th-time" step="0.1" min="0" style="width:90px"></div></div>
@@ -582,7 +787,8 @@ export function createShortsViews(ui) {
         </section>
         <section class="panel" style="margin-top:14px">
           <h3>⑥ 내보내기</h3>
-          <label class="small check-line"><input type="checkbox" id="ex-cut" checked><span>캡컷 묶음에 "자막 없는 컷 편집 영상" 포함 (영상 길이만큼 녹화 시간이 걸려요)</span></label>
+          <label class="small check-line"><input type="checkbox" id="ex-cut" checked><span>캡컷 묶음에 "컷 편집 영상" 포함 (영상 길이만큼 녹화 시간이 걸려요)</span></label>
+          <label class="small check-line"><input type="checkbox" id="ex-cut-title"><span>컷 편집 영상에 상단 제목까지 넣기 (대본 자막만 캡컷에서 SRT로)</span></label>
           <div class="row" style="flex-direction:column;align-items:stretch">
             <button class="btn primary" id="ex-capcut">📦 캡컷 편집용 묶음 ZIP</button>
             <button class="btn" id="ex-final">🎬 자막 입힌 완성 영상 만들기</button>
@@ -595,7 +801,13 @@ export function createShortsViews(ui) {
 
     const stage = $('#sh-stage');
     const stageCtx = stage.getContext('2d');
-    const updateLen = () => { $('#sh-len').textContent = `${p.clips.length}개 클립 · ${totalLen(p).toFixed(1)}초 · 9:16`; };
+    const updateLen = () => {
+      const total = totalLen(p);
+      const over = Object.entries(PLATFORMS).filter(([k, v]) => p.platforms?.[k] && v.max && total > v.max).map(([, v]) => v.label);
+      $('#sh-len').textContent = `${p.clips.length}개 클립 · ${total.toFixed(1)}초 · 9:16 1080×1920${over.length ? ` · ⚠️ ${over.join('·')} 3분 초과` : ''}`;
+      $('#sh-len').classList.toggle('warn', over.length > 0);
+    };
+    const firstSubT = () => (p.subtitles?.[1]?.start ?? p.subtitles?.[0]?.start ?? 0) + 0.05;
     const previewAt = async (t) => {
       let acc = 0;
       for (let i = 0; i < p.clips.length; i++) {
@@ -604,9 +816,8 @@ export function createShortsViews(ui) {
           await seek(vids[i], (p.clips[i].in || 0) + Math.max(0, t - acc));
           stageCtx.fillStyle = '#000'; stageCtx.fillRect(0, 0, W, H);
           drawVideo(stageCtx, vids[i], p.fit);
-          const sub = activeSub(p, t);
-          drawSubtitle(stageCtx, sub, p.style, isHookSub(p, sub));
-          if ($('#pv-safe').checked) drawSafeZone(stageCtx);
+          drawOverlay(stageCtx, p, t);
+          if ($('#pv-safe').value) drawSafeZone(stageCtx, $('#pv-safe').value);
           $('#pv-time').textContent = fmt(t);
           return;
         }
@@ -719,8 +930,11 @@ export function createShortsViews(ui) {
     $('#sh-desc').addEventListener('input', (e) => { p.desc = e.target.value; persist(); });
     $('#sh-target').addEventListener('change', (e) => { p.target = +e.target.value; persist(); });
     $('#sh-style').addEventListener('change', (e) => { p.style = e.target.value; persist(); previewAt(0); });
+    $('#sh-font').addEventListener('change', async (e) => { p.font = e.target.value; persist(); await loadFonts(p, titleText(p)); drawThumb(); });
+    $('#sh-pos').addEventListener('change', (e) => { p.subPos = e.target.value; persist(); previewAt(firstSubT()); });
+    $('#sh-toptitle').addEventListener('change', (e) => { p.topTitle = e.target.checked; persist(); previewAt(0); });
     $('#sh-fit').addEventListener('change', (e) => { p.fit = e.target.value; persist(); previewAt(0); });
-    $$('[data-pf]').forEach((el) => el.addEventListener('change', () => { p.platforms[el.dataset.pf] = el.checked; persist(); }));
+    $$('[data-pf]').forEach((el) => el.addEventListener('change', () => { p.platforms[el.dataset.pf] = el.checked; persist(); updateLen(); }));
     $('#sh-more').addEventListener('change', async (e) => {
       const before = p.clips.length;
       await addFiles(p, [...e.target.files]);
@@ -768,18 +982,19 @@ export function createShortsViews(ui) {
     $('#pv-play').addEventListener('click', async () => {
       const sq = getSeq();
       sq.stop(); await new Promise((r) => setTimeout(r, 50));
-      sq.play({ safe: $('#pv-safe').checked, onTime: (t) => { $('#pv-time').textContent = fmt(t); } });
+      sq.play({ safe: $('#pv-safe').value || false, onTime: (t) => { $('#pv-time').textContent = fmt(t); } });
     });
     $('#pv-stop').addEventListener('click', () => seq?.stop());
-    $('#pv-safe').addEventListener('change', () => previewAt(0));
+    $('#pv-safe').addEventListener('change', () => previewAt(firstSubT()));
 
     // ---------- 내보내기 ----------
     const bar = $('#ex-bar');
     const setBar = (r) => { bar.style.display = 'block'; bar.firstElementChild.style.width = `${Math.round(r * 100)}%`; };
-    async function recordCut(subtitles) {
+    async function recordCut(subtitles, title = subtitles) {
       const sq = getSeq();
       sq.stop(); await new Promise((r) => setTimeout(r, 80));
-      return sq.record({ subtitles, onProgress: setBar });
+      await loadFonts(p, titleText(p));
+      return sq.record({ subtitles, title, onProgress: setBar });
     }
     const lockButtons = (on) => ['#ex-capcut', '#ex-final', '#pv-play'].forEach((sel) => { $(sel).disabled = on; });
     $('#ex-final').addEventListener('click', async () => {
@@ -797,9 +1012,15 @@ export function createShortsViews(ui) {
       lockButtons(true);
       try {
         const zip = new window.JSZip();
-        zip.file('subtitles.srt', `﻿${toSrt(p.subtitles || [])}`);
+        const cutHasTitle = $('#ex-cut').checked && $('#ex-cut-title').checked;
+        zip.file('subtitles.srt', `\uFEFF${toSrt(p.subtitles || [])}`);
+        if (titleText(p)) {
+          zip.file('title.srt', `\uFEFF${titleSrt(p)}`);
+          const ov = renderTitleOverlay(document.createElement('canvas'), p);
+          zip.file('title_overlay.png', await new Promise((r) => ov.toBlob(r, 'image/png')));
+        }
         zip.file('captions.txt', ['[인스타 릴스]', captionText(p, 'instagram'), '', '[유튜브 쇼츠]', captionText(p, 'youtube'), '', '[네이버 클립]', captionText(p, 'naver')].join('\n'));
-        zip.file('guide.txt', guideText(p));
+        zip.file('guide.txt', guideText(p, { cutHasTitle }));
         await renderThumb(thumbCv, p, vids, env);
         zip.file('thumbnail.png', await new Promise((r) => thumbCv.toBlob(r, 'image/png')));
         const folder = zip.folder('clips');
@@ -809,8 +1030,8 @@ export function createShortsViews(ui) {
         }
         if ($('#ex-cut').checked && p.clips.length) {
           toast('컷 편집 영상을 녹화하는 중이에요. 이 탭을 그대로 두세요.');
-          const { blob, ext } = await recordCut(false);
-          zip.file(`cut_no_subtitles.${ext}`, blob);
+          const { blob, ext } = await recordCut(false, cutHasTitle);
+          zip.file(`${cutHasTitle ? 'cut_with_title' : 'cut_no_subtitles'}.${ext}`, blob);
         }
         download(await zip.generateAsync({ type: 'blob' }), `${safeName(p.title)}_capcut.zip`);
         toast('캡컷 편집용 묶음을 내려받았어요. guide.txt를 먼저 열어 보세요.');
@@ -818,6 +1039,7 @@ export function createShortsViews(ui) {
       lockButtons(false); setTimeout(() => { bar.style.display = 'none'; }, 1500);
     });
 
+    await loadFonts(p, titleText(p));
     await refreshAll();
     await previewAt(0);
   }

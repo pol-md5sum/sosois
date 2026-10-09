@@ -191,3 +191,6 @@ td select { width: auto; padding: 5px 8px; }
 @media (max-width: 760px) { .sub-row { grid-template-columns: 1fr 1fr; } .sub-row textarea { grid-column: 1 / -1; } }
 .check-line { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
 .check-line input { margin-top: 3px; }
+.pf-sizes { display: grid; gap: 4px; margin: 8px 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--soft, #f6f6f8); }
+#sh-len.warn { background: #fde8ec; color: #c0294a; }
+#pv-safe { width: auto; padding: 4px 8px; }
