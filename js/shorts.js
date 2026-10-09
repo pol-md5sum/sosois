@@ -1,6 +1,6 @@
 // 🎬 숏폼 만들기 — 영상 업로드 → AI 자막·썸네일·캡션 → 캡컷 편집용 묶음 / 자막 입힌 완성 영상
 import { PROVIDERS, callModel, extractJson } from './ai.js';
-import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShorts, getShort, saveShort, deleteShort, newId } from './store.js';
+import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShorts, getShort, saveShort, deleteShort, newId, mineOnly } from './store.js';
 
 export const W = 1080;
 export const H = 1920;
@@ -13,12 +13,6 @@ export const PLATFORMS = {
 };
 // 세 플랫폼 공통으로 안 가려지는 영역
 export const SAFE_ALL = { top: 0.14, bottom: 0.35, left: 0.06, right: 0.14 };
-export const SUB_STYLES = {
-  capcut: '🎬 캡컷 기본 (흰 글씨 + 두꺼운 검은 테두리, 핵심어 노랑)',
-  toon: '🐑 인스타툰 (둥근 글씨 + 검은 테두리, 핵심어 핑크)',
-  magazine: '📰 매거진 (반투명 띠 + 굵은 고딕)',
-  simple: '✨ 심플 (흰 글씨 + 그림자)',
-};
 // 캡컷에서 많이 쓰는 굵은 고딕 계열 (모두 웹폰트로 불러옴)
 export const FONTS = {
   pretendard: { label: '프리텐다드 ExtraBold (캡컷 기본 글씨 느낌)', css: '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif', weight: 800 },
@@ -26,11 +20,8 @@ export const FONTS = {
   dohyeon: { label: '도현체', css: '"Do Hyeon", "Pretendard Variable", sans-serif', weight: 400 },
   jua: { label: '주아체 (둥근 글씨)', css: '"Jua", "Pretendard Variable", sans-serif', weight: 400 },
 };
-const TITLE_FONT = '"Jua", "Pretendard Variable", sans-serif';
 const BODY_FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif';
 const PINK = '#F0506E';
-const YELLOW = '#FFE14D';
-const fontOf = (p) => FONTS[p?.font] || (p?.style === 'toon' ? FONTS.jua : FONTS.pretendard);
 const fontStr = (f, size) => `${f.weight} ${size}px ${f.css}`;
 export const showTitle = (p) => p?.topTitle !== false;
 export const titleText = (p) => String(p?.thumb?.title || p?.hook || p?.title || '').trim();
@@ -65,6 +56,29 @@ export function distribute(texts, total) {
     t += d;
     return { start: +start.toFixed(2), end: +Math.min(total, t).toFixed(2), text, hl: '' };
   });
+}
+
+// 자동 배치: 촬영 순서로 정렬 → 세로/가로에 맞춰 배치 → 목표 길이에 맞게 각 클립 가운데 구간을 고른다
+// 반환값: 새 순서(원래 인덱스 배열) — 화면에서 영상 요소도 같은 순서로 맞춘다
+export function autoArrange(p) {
+  const order = p.clips.map((c, i) => i);
+  if (p.clips.every((c) => c.mtime)) order.sort((a, b) => p.clips[a].mtime - p.clips[b].mtime);
+  p.clips = order.map((i) => p.clips[i]);
+  p.fit = 'auto';
+  for (const c of p.clips) { delete c.fit; c.zoom = 1; c.px = 0; c.py = 0; c.in = 0; c.out = +c.duration.toFixed(2); }
+  autoTrim(p, Number(p.target) || 0);
+  return order;
+}
+export function autoTrim(p, target) {
+  const full = p.clips.reduce((a, c) => a + c.duration, 0);
+  if (!target || full <= target) return p;
+  const minLen = Math.min(1.5, target / p.clips.length);
+  for (const c of p.clips) {
+    const len = Math.max(Math.min(c.duration, minLen), (c.duration / full) * target);
+    const start = Math.max(0, (c.duration - len) / 2);
+    c.in = +start.toFixed(2); c.out = +Math.min(c.duration, start + len).toFixed(2);
+  }
+  return p;
 }
 
 // ---------- AI ----------
@@ -209,18 +223,22 @@ const JOSA_RE = /(으로|에서|까지|부터|이랑|하고|에게|이|가|은|�
 const STOP = new Set(['진짜', '엄청', '완전', '정말', '너무', '그리고', '근데', '그래서', '이거', '저거', '여기', '오늘', '느낌', '분위기', '발랄', '귀엽', '정도', '하나', '이번']);
 function keywords(text) {
   const out = [];
+  const finals = new Set(String(text).split(/[.!?~\n]+/).map((x) => x.trim().split(/\s+/).pop()?.replace(/[^가-힣A-Za-z0-9]/g, '')).filter(Boolean));
   for (const raw of String(text).split(/[\s.,!?~·]+/)) {
     let w = raw.replace(/[^가-힣A-Za-z0-9]/g, '');
     if (/\d/.test(w) && !/[가-힣A-Za-z]{2,}/.test(w)) continue;
     w = w.replace(JOSA_RE, '');
     if (w.length < 2 || w.length > 10 || STOP.has(w)) continue;
     if (/(요|다|음|함|됨|감|게|고|서|임|해|져|어|아|긴|된|던)$/.test(w)) continue;
+    // 문장 끝 메모체 동사(으깸·먹음처럼 받침 ㅁ)와 "~면"은 태그에서 뺀다
+    const last = w.charCodeAt(w.length - 1) - 0xAC00;
+    if (/면$/.test(w) || (finals.has(w) && last >= 0 && last < 11172 && last % 28 === 16)) continue;
     if (!out.includes(w)) out.push(w);
   }
   return out;
 }
 
-export function templatePlan(p, handle) {
+export function templatePlan(p, handle, charName = '모아') {
   const raw = String(p.desc || '').split(/(?<=[.!?。…~])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
   const tone = raw.filter((x) => TONE_RE.test(x));
   const facts = raw.filter((x) => !TONE_RE.test(x));
@@ -252,7 +270,7 @@ export function templatePlan(p, handle) {
     subtitles: subs,
     thumbnail: { title, highlight: kind.suffix || kw[0] || '', clip: 0, time: 1 },
     captions: {
-      instagram: { text: `${oneLine} 👀\n\n${bullet}\n\n📌 저장해 두고 다시 보기\n💬 같이 볼 친구 태그하기\n🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기`, hashtags: [...kw, '릴스', '숏폼', '모아'].slice(0, 15) },
+      instagram: { text: `${oneLine} 👀\n\n${bullet}\n\n📌 저장해 두고 다시 보기\n💬 같이 볼 친구 태그하기\n🐑 ${handle} 팔로우하고 매일 쉬운 소식 받기`, hashtags: [...new Set([...kw, '릴스', '숏폼', String(charName).replace(/\s/g, '')])].slice(0, 15) },
       youtube: { title: `${oneLine} #Shorts`.slice(0, 100), description: `${points.slice(0, 3).join(' · ')}\n\n${handle} 구독하고 더 보기`, tags: [...kw, 'Shorts', '쇼츠'].slice(0, 10) },
       naver: { title: oneLine.slice(0, 30), description: points.slice(0, 2).join(' · '), tags: [...kw, '클립'].slice(0, 10) },
     },
@@ -304,20 +322,33 @@ export async function frameAt(v, t, width = 540) {
   return cv;
 }
 
-// 9:16 화면에 영상 배치: cover(꽉 채우기) 또는 blur(흐린 배경 + 원본 비율)
-function drawVideo(ctx, v, fit) {
+// ---------- 영상 배치 (캡컷 "캔버스"처럼) ----------
+export const FITS = { auto: '자동 (세로는 꽉 채우기 · 가로는 흐린 배경)', cover: '꽉 채우기 (가장자리 잘림)', blur: '흐린 배경 + 원본 비율', contain: '검은 배경 + 원본 비율' };
+// 클립별 배치: 자동이면 세로 영상은 꽉 채우고, 가로·정사각 영상은 흐린 배경 위에 원본 비율로
+export const fitOf = (p, clip, v) => {
+  const f = clip?.fit && clip.fit !== 'project' ? clip.fit : (p?.fit || 'auto');
+  if (f !== 'auto') return f;
+  const vw = v?.videoWidth || clip?.w || 1080;
+  const vh = v?.videoHeight || clip?.h || 1920;
+  return vh / vw >= 1.45 ? 'cover' : 'blur';
+};
+function drawVideo(ctx, v, fit, clip = {}, prog = 0, motion = false) {
   const vw = v.videoWidth || 1080;
   const vh = v.videoHeight || 1920;
-  if (fit === 'blur' && vw / vh > 0.6) {
-    const sc = Math.max(W / vw, H / vh);
-    ctx.save(); ctx.filter = 'blur(28px) brightness(0.7)';
-    ctx.drawImage(v, (W - vw * sc) / 2, (H - vh * sc) / 2, vw * sc, vh * sc);
-    ctx.restore();
-    const s2 = Math.min(W / vw, H / vh);
-    ctx.drawImage(v, (W - vw * s2) / 2, (H - vh * s2) / 2, vw * s2, vh * s2);
+  const zoom = (Number(clip.zoom) || 1) * (motion ? 1 + 0.08 * Math.min(1, Math.max(0, prog)) : 1);
+  const ox = (Number(clip.px) || 0) * W * 0.25;
+  const oy = (Number(clip.py) || 0) * H * 0.25;
+  const place = (sc) => { const w = vw * sc * zoom; const h = vh * sc * zoom; ctx.drawImage(v, (W - w) / 2 + ox, (H - h) / 2 + oy, w, h); };
+  if (fit === 'blur' || fit === 'contain') {
+    if (fit === 'blur') {
+      const sc = Math.max(W / vw, H / vh) * 1.08;
+      ctx.save(); ctx.filter = 'blur(28px) brightness(0.7)';
+      ctx.drawImage(v, (W - vw * sc) / 2, (H - vh * sc) / 2, vw * sc, vh * sc);
+      ctx.restore();
+    }
+    place(Math.min(W / vw, H / vh));
   } else {
-    const sc = Math.max(W / vw, H / vh);
-    ctx.drawImage(v, (W - vw * sc) / 2, (H - vh * sc) / 2, vw * sc, vh * sc);
+    place(Math.max(W / vw, H / vh));
   }
 }
 
@@ -348,18 +379,35 @@ function richLine(ctx, line, hl, cx, y, { fill, accent, stroke, strokeW }) {
   }
 }
 
-// 캡컷식 외곽선 글씨: 두꺼운 검은 테두리를 먼저 칠하고 흰 글씨를 얹는다
-function outlinedLines(ctx, lines, hl, cx, yCenter, size, f, { fill = '#FFFFFF', accent = YELLOW, stroke = '#000000', ratio = 0.24, lh = 1.22 } = {}) {
-  ctx.font = fontStr(f, size);
-  const step = size * lh;
-  const y0 = yCenter - ((lines.length - 1) * step) / 2;
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = size * 0.12; ctx.shadowOffsetY = size * 0.05;
-  lines.forEach((l, i) => { ctx.lineWidth = size * ratio; ctx.strokeStyle = stroke; ctx.lineJoin = 'round'; ctx.miterLimit = 2; ctx.textAlign = 'center'; ctx.strokeText(l, cx, y0 + i * step); });
-  ctx.restore();
-  lines.forEach((l, i) => richLine(ctx, l, hl, cx, y0 + i * step, { fill, accent }));
-  return { top: y0 - step / 2, bottom: y0 + (lines.length - 0.5) * step };
+// ---------- 글자 디자인 (캡컷 텍스트 패널처럼) ----------
+// size: 글자 크기(px, 1080 기준) · letter: 자간(px) · line: 행간(배) · stroke: 테두리 두께(px) · y: 세로 위치(화면 %)
+export const TEXT_DEFAULTS = {
+  title: { font: 'pretendard', size: 100, letter: 0, line: 1.2, stroke: 22, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 21, shadow: true, box: false, boxColor: '#FFFFFF', maxLines: 3 },
+  sub: { font: 'pretendard', size: 88, letter: 0, line: 1.22, stroke: 20, fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', y: 50, shadow: true, box: false, boxColor: '#000000', maxLines: 2 },
+};
+// 캡컷 "텍스트 템플릿" 같은 빠른 스타일
+export const TEXT_PRESETS = {
+  capcut: { label: '캡컷 기본', fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', stroke: 20, shadow: true, box: false },
+  yellow: { label: '노랑 강조', fill: '#FFE14D', strokeColor: '#000000', accent: '#FFFFFF', stroke: 20, shadow: true, box: false },
+  whitebox: { label: '흰 상자', fill: '#111111', strokeColor: '#000000', accent: '#F0506E', stroke: 0, shadow: false, box: true, boxColor: '#FFFFFF' },
+  blackbox: { label: '검정 반투명 상자', fill: '#FFFFFF', strokeColor: '#000000', accent: '#FFE14D', stroke: 0, shadow: false, box: true, boxColor: '#000000' },
+  pink: { label: '핑크 테두리', fill: '#FFFFFF', strokeColor: '#F0506E', accent: '#FFE14D', stroke: 22, shadow: true, box: false },
+  thin: { label: '얇은 테두리', fill: '#FFFFFF', strokeColor: '#000000', accent: '#7FE3FF', stroke: 9, shadow: true, box: false },
+};
+// 프로젝트의 글자 설정 (예전 프로젝트의 font·subPos·style도 반영)
+export function textOf(p, which) {
+  const legacy = {};
+  if (p?.font) legacy.font = p.font;
+  if (which === 'sub') {
+    if (p?.subPos === 'lower') legacy.y = 60;
+    if (p?.style === 'toon') Object.assign(legacy, { font: p.font || 'jua', accent: PINK });
+    if (p?.style === 'magazine') Object.assign(legacy, TEXT_PRESETS.blackbox);
+    if (p?.style === 'simple') Object.assign(legacy, { stroke: 0, shadow: true });
+  }
+  return { ...TEXT_DEFAULTS[which], ...legacy, ...(p?.text?.[which] || {}) };
 }
+const setLetter = (ctx, px) => { try { ctx.letterSpacing = `${px || 0}px`; } catch { /* 미지원 브라우저 */ } };
+
 // 글자 크기를 줄여 가며 maxW·maxLines 안에 맞춘다
 function fitLines(ctx, text, f, size, minSize, maxW, maxLines) {
   let lines;
@@ -371,67 +419,52 @@ function fitLines(ctx, text, f, size, minSize, maxW, maxLines) {
   return { lines: lines.slice(0, maxLines), size };
 }
 
-// 상단 고정 제목 (= 썸네일 제목). 세 플랫폼 공통 안전 영역(위 14%) 바로 아래부터
-export function drawTitle(ctx, p) {
-  const text = titleText(p);
-  if (!text) return;
-  const f = fontOf(p);
+// 글자 블록 그리기: 테두리 → (상자) → 글자 순서. cy는 블록 가운데 높이
+export function drawTextBlock(ctx, text, hl, st, cy) {
+  if (!String(text || '').trim()) return null;
+  const f = FONTS[st.font] || FONTS.pretendard;
   ctx.save();
   ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const { lines, size } = fitLines(ctx, text, f, 100, 60, W * (1 - SAFE_ALL.left - SAFE_ALL.left) - 20, 3);
-  const top = H * SAFE_ALL.top + 16;
-  const step = size * 1.2;
-  outlinedLines(ctx, lines, p.thumb?.highlight, W / 2, top + step / 2 + ((lines.length - 1) * step) / 2, size, f, { accent: YELLOW });
+  setLetter(ctx, st.letter);
+  const maxW = W * 0.88 - (st.box ? 60 : 0);
+  const { lines, size } = fitLines(ctx, text, f, Math.round(st.size), Math.min(40, st.size), maxW, st.maxLines || 2);
+  const step = size * (st.line || 1.2);
+  const y0 = cy - ((lines.length - 1) * step) / 2;
+  if (st.box) {
+    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + size * 0.9;
+    const bh = lines.length * step + size * 0.45;
+    ctx.save();
+    ctx.globalAlpha = st.boxColor?.toLowerCase() === '#000000' ? 0.62 : 0.95;
+    ctx.fillStyle = st.boxColor || '#000';
+    ctx.beginPath(); ctx.roundRect((W - bw) / 2, cy - bh / 2, bw, bh, size * 0.28); ctx.fill();
+    ctx.restore();
+  }
+  if (st.stroke > 0) {
+    ctx.save();
+    if (st.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = size * 0.12; ctx.shadowOffsetY = size * 0.05; }
+    ctx.lineWidth = st.stroke * (size / st.size) * 2; // 바깥으로 보이는 두께가 stroke px이 되도록 (선의 절반은 글자에 덮임)
+    ctx.strokeStyle = st.strokeColor; ctx.lineJoin = 'round'; ctx.miterLimit = 2;
+    lines.forEach((l, i) => { const w = ctx.measureText(l).width; ctx.strokeText(l, W / 2 - w / 2, y0 + i * step); });
+    ctx.restore();
+  } else if (st.shadow && !st.box) {
+    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = size * 0.2; ctx.shadowOffsetY = 3;
+  }
+  lines.forEach((l, i) => richLine(ctx, l, hl, W / 2, y0 + i * step, { fill: st.fill, accent: st.accent }));
   ctx.restore();
+  return { top: y0 - step / 2, bottom: y0 + (lines.length - 0.5) * step, size };
 }
 
-// 대본 자막: 기본은 화면 정가운데 흰 글씨 + 검은 테두리
-export function drawSubtitle(ctx, sub, p, isHook) {
+// 상단 고정 제목 (= 썸네일 제목)
+export function drawTitle(ctx, p) {
+  const st = textOf(p, 'title');
+  drawTextBlock(ctx, titleText(p), p.thumb?.highlight, st, H * (st.y / 100));
+}
+
+// 대본 자막
+export function drawSubtitle(ctx, sub, p) {
   if (!sub?.text) return;
-  const style = p.style || 'capcut';
-  const f = fontOf(p);
-  const top = showTitle(p);
-  const bigHook = isHook && !top; // 상단 제목을 끄면 첫 자막을 위쪽에 크게
-  const cy = bigHook ? H * 0.22 : (p.subPos === 'lower' ? H * 0.6 : H * 0.5);
-  ctx.save();
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  if (style === 'magazine') {
-    const size = bigHook ? 84 : 66;
-    ctx.font = `800 ${size}px ${BODY_FONT}`;
-    const lines = wrapText(ctx, sub.text, 900, 2);
-    const lh = size * 1.3;
-    const bh = lines.length * lh + 44;
-    const y0 = cy - bh / 2;
-    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 80;
-    ctx.fillStyle = 'rgba(15,15,15,0.62)';
-    ctx.beginPath(); ctx.roundRect((W - bw) / 2, y0, bw, bh, 22); ctx.fill();
-    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 22 + lh * (i + 0.5), { fill: '#FFFFFF', accent: YELLOW }));
-  } else if (style === 'simple') {
-    const size = bigHook ? 88 : 70;
-    ctx.font = fontStr(f, size);
-    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 3;
-    const lines = wrapText(ctx, sub.text, 920, 2);
-    const lh = size * 1.25;
-    const y0 = cy - ((lines.length - 1) * lh) / 2;
-    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + lh * i, { fill: '#FFFFFF', accent: YELLOW }));
-  } else if (style === 'toon' && bigHook) {
-    // 인스타툰 훅: 흰 말풍선 박스
-    const size = 104;
-    ctx.font = `700 ${size}px ${TITLE_FONT}`;
-    const lines = wrapText(ctx, sub.text, 880, 2);
-    const lh = size * 1.2;
-    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 90;
-    const bh = lines.length * lh + 60;
-    const y0 = H * 0.15;
-    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#141414'; ctx.lineWidth = 7;
-    ctx.beginPath(); ctx.roundRect((W - bw) / 2, y0, bw, bh, 40); ctx.fill(); ctx.stroke();
-    lines.forEach((l, i) => richLine(ctx, l, sub.hl, W / 2, y0 + 30 + lh * (i + 0.5), { fill: '#141414', accent: PINK }));
-  } else {
-    // 캡컷 기본 / 인스타툰: 흰 글씨 + 두꺼운 검은 테두리
-    const { lines, size } = fitLines(ctx, sub.text, f, bigHook ? 100 : 88, 56, W * 0.86, 2);
-    outlinedLines(ctx, lines, sub.hl, W / 2, cy, size, f, { accent: style === 'toon' ? PINK : YELLOW });
-  }
-  ctx.restore();
+  const st = textOf(p, 'sub');
+  drawTextBlock(ctx, sub.text, sub.hl, st, H * (st.y / 100));
 }
 
 // 플랫폼별 가림 영역 (key: reels | shorts | clip | all)
@@ -452,19 +485,30 @@ export function drawSafeZone(ctx, key = 'all') {
 }
 
 const activeSub = (p, t) => (p.subtitles || []).find((s) => t >= s.start && t < s.end);
-const isHookSub = (p, s) => s && p.subtitles?.[0] === s && s.start < 2.5;
 
-// 한 프레임 그리기 (미리보기·녹화·오버레이 공용)
-export function drawOverlay(ctx, p, t, { title = true, subtitles = true } = {}) {
+// 영상 안 캐릭터 (오른쪽/왼쪽 아래)
+export function drawCharacter(ctx, p, img) {
+  const c = p.charVideo;
+  if (!img || !c?.on) return;
+  const h = H * 0.2 * (Number(c.size) || 1);
+  const w = h * (img.naturalWidth / img.naturalHeight);
+  const x = c.pos === 'bl' ? W * 0.06 : W * 0.86 - w;
+  const y = H * 0.64 - h;
+  ctx.drawImage(img, x, y, w, h);
+}
+
+// 한 프레임 위에 얹는 것들 (미리보기·녹화·오버레이 공용)
+export function drawOverlay(ctx, p, t, { title = true, subtitles = true, charImg = null } = {}) {
+  drawCharacter(ctx, p, charImg);
   if (title && showTitle(p)) drawTitle(ctx, p);
-  if (subtitles) { const s = activeSub(p, t); drawSubtitle(ctx, s, p, isHookSub(p, s)); }
+  if (subtitles) drawSubtitle(ctx, activeSub(p, t), p);
 }
 
 // ---------- 재생기 (미리보기·녹화 공용) ----------
 let sharedAC = null;
 export class Sequencer {
-  constructor(p, vids, canvas) {
-    this.p = p; this.vids = vids; this.canvas = canvas; this.ctx = canvas.getContext('2d');
+  constructor(p, vids, canvas, charImg = null) {
+    this.p = p; this.vids = vids; this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.charImg = charImg;
     this.stopFlag = false; this.audio = null;
   }
   ensureAudio() {
@@ -485,11 +529,11 @@ export class Sequencer {
     }
     return this.audio;
   }
-  drawAt(v, t, { subtitles = true, title = true, safe = false } = {}) {
+  drawAt(v, t, { subtitles = true, title = true, safe = false } = {}, clip = null, prog = 0) {
     const ctx = this.ctx;
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    if (v) drawVideo(ctx, v, this.p.fit);
-    drawOverlay(ctx, this.p, t, { title, subtitles });
+    if (v) drawVideo(ctx, v, fitOf(this.p, clip, v), clip || {}, prog, this.p.motion);
+    drawOverlay(ctx, this.p, t, { title, subtitles, charImg: this.charImg });
     if (safe) drawSafeZone(ctx, safe === true ? 'all' : safe);
   }
   stop() { this.stopFlag = true; this.vids.forEach((v) => v.pause()); }
@@ -505,13 +549,13 @@ export class Sequencer {
       const a = c.in || 0;
       const b = c.out ?? c.duration;
       await seek(v, a);
-      this.drawAt(v, offset, { subtitles, title, safe });
+      this.drawAt(v, offset, { subtitles, title, safe }, c, 0);
       await v.play().catch(() => {});
       await new Promise((resolve) => {
         const tick = () => {
           if (this.stopFlag || v.ended || v.currentTime >= b - 0.02) { v.pause(); resolve(); return; }
           const t = offset + (v.currentTime - a);
-          this.drawAt(v, t, { subtitles, title, safe });
+          this.drawAt(v, t, { subtitles, title, safe }, c, (v.currentTime - a) / Math.max(0.1, b - a));
           onTime?.(t);
           requestAnimationFrame(tick);
         };
@@ -533,7 +577,7 @@ export class Sequencer {
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const stopped = new Promise((res) => { rec.onstop = res; });
     const total = totalLen(this.p);
-    this.drawAt(this.vids[0], 0, { subtitles, title });
+    this.drawAt(this.vids[0], 0, { subtitles, title }, this.p.clips[0], 0);
     rec.start(500);
     await this.play({ subtitles, title, speakers: false, onTime: (t) => onProgress?.(Math.min(1, t / total)) });
     await new Promise((r) => setTimeout(r, 250));
@@ -546,8 +590,8 @@ export class Sequencer {
 
 // ---------- 글꼴·오버레이 ----------
 export async function loadFonts(p, sample = '가나다') {
-  const f = fontOf(p);
-  try { await Promise.all([document.fonts.load(fontStr(f, 80), sample || '가'), document.fonts.load(`800 66px ${BODY_FONT}`, '가')]); } catch { /* 대체 폰트 */ }
+  const fs = [...new Set([textOf(p, 'title').font, textOf(p, 'sub').font])].map((k) => FONTS[k] || FONTS.pretendard);
+  try { await Promise.all([...fs.map((f) => document.fonts.load(fontStr(f, 80), sample || '가')), document.fonts.load(`800 66px ${BODY_FONT}`, '가')]); } catch { /* 대체 폰트 */ }
 }
 // 캡컷 오버레이용: 투명 배경에 상단 제목만 (위치 그대로 1080×1920)
 export function renderTitleOverlay(canvas, p) {
@@ -566,22 +610,21 @@ export async function renderThumb(canvas, p, vids, env) {
   const ci = Math.min(th.clip || 0, vids.length - 1);
   const v = vids[ci];
   ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H);
-  if (v) { await seek(v, Math.min(th.time ?? 1, (v.duration || 1) - 0.1)); drawVideo(ctx, v, 'cover'); }
+  if (v) { await seek(v, Math.min(th.time ?? 1, (v.duration || 1) - 0.1)); drawVideo(ctx, v, 'cover', { zoom: p.clips[ci]?.zoom, px: p.clips[ci]?.px, py: p.clips[ci]?.py }); }
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.45, 'rgba(0,0,0,0.15)'); g.addColorStop(0.75, 'rgba(0,0,0,0.05)'); g.addColorStop(1, 'rgba(0,0,0,0.5)');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // 상단 고정 제목과 같은 문구·글씨체로 크게
+  // 상단 고정 제목과 같은 문구·글자 디자인으로 더 크게
   const title = titleText(p);
-  const f = fontOf(p);
   await loadFonts(p, title);
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const { lines, size } = fitLines(ctx, title, f, 150, 72, 940, 3);
-  outlinedLines(ctx, lines, th.highlight, W / 2, H * 0.3, size, f, { accent: YELLOW, lh: 1.15 });
-  // 모아 + 계정
-  if (env?.moa) {
+  const st = textOf(p, 'title');
+  drawTextBlock(ctx, title, th.highlight, { ...st, size: Math.round(st.size * 1.45), stroke: st.stroke * 1.3 }, H * 0.3);
+  // 캐릭터 + 계정 (계정 설정에서 끌 수 있음)
+  const ch = env?.charImg;
+  if (ch && p.charThumb !== false && env.settings?.showCharShorts !== false) {
     const mh = 420;
-    const mw = mh * (env.moa.naturalWidth / env.moa.naturalHeight);
-    ctx.drawImage(env.moa, W - mw - 30, H - mh - 60, mw, mh);
+    const mw = mh * (ch.naturalWidth / ch.naturalHeight);
+    ctx.drawImage(ch, W - mw - 30, H - mh - 60, mw, mh);
   }
   ctx.font = `700 34px ${BODY_FONT}`; ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.textAlign = 'left';
   ctx.fillText(getSettings().handle, 50, H - 90);
@@ -603,7 +646,9 @@ export function titleSrt(p) {
 }
 
 export function guideText(p, { cutHasTitle = false } = {}) {
-  const f = fontOf(p);
+  const stT = textOf(p, 'title');
+  const st = textOf(p, 'sub');
+  const f = FONTS[st.font] || FONTS.pretendard;
   const lines = ['MOA 숏폼 — 캡컷 편집 안내', '', `제목: ${p.title}`, `전체 길이: ${totalLen(p).toFixed(1)}초`, ''];
   lines.push('[영상 크기] 인스타 릴스·유튜브 쇼츠·네이버 클립 모두 9:16 세로 1080×1920 하나로 올리면 됩니다.');
   Object.values(PLATFORMS).forEach((pf) => lines.push(`  - ${pf.label}: ${pf.note}`));
@@ -627,9 +672,14 @@ export function guideText(p, { cutHasTitle = false } = {}) {
   }
   lines.push('  3) 텍스트(캡션) → 자막 가져오기(로컬 자막) → subtitles.srt → 시간이 자동으로 맞습니다');
   lines.push('  4) 자막 하나를 골라 아래처럼 바꾸고 "모든 자막에 적용"');
-  lines.push(`     · 글꼴: ${f.label.replace(/\s*\(.*\)$/, '')} 계열 굵은 고딕 (캡컷 글꼴 목록에 없으면 비슷한 굵은 고딕)`);
-  lines.push('     · 색: 흰색 / 테두리(획): 검정, 두께 크게 / 그림자 약하게');
-  lines.push(`     · 위치: ${p.subPos === 'lower' ? '화면 세로 60% 지점' : '화면 정가운데 (세로 위치 0)'} · 크기: 가로 폭의 80% 안쪽`);
+  const desc = (x, ff) => [
+    `글꼴 ${ff.label.replace(/\s*\(.*\)$/, '')} (캡컷 글꼴 목록에 없으면 비슷한 굵은 고딕)`,
+    `글자색 ${x.fill} · ${x.stroke > 0 ? `테두리 ${x.strokeColor} (두께 ${x.stroke}px 정도)` : '테두리 없음'}${x.box ? ` · 배경 상자 ${x.boxColor}` : ''}${x.shadow ? ' · 그림자 약하게' : ''}`,
+    `크기 ${x.size}px(1080 기준) · 자간 ${x.letter}px · 행간 ${x.line}배 · 세로 위치 화면 위에서 ${x.y}%`,
+  ];
+  desc(st, f).forEach((l) => lines.push(`     · ${l}`));
+  lines.push('  5) (title.srt를 썼다면) 제목도 같은 방법으로:');
+  desc(stT, FONTS[stT.font] || FONTS.pretendard).forEach((l) => lines.push(`     · ${l}`));
   lines.push('');
   lines.push('[캡컷 자동 배치가 안 되는 이유]');
   lines.push('  캡컷은 외부에서 프로젝트를 만들어 넣는 공식 기능(API)을 제공하지 않습니다.');
@@ -648,7 +698,7 @@ export function guideText(p, { cutHasTitle = false } = {}) {
 // 화면
 // =====================================================================
 export function createShortsViews(ui) {
-  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName } = ui;
+  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor } = ui;
 
   async function readMeta(file) {
     const v = await loadVideoEl(file);
@@ -660,14 +710,15 @@ export function createShortsViews(ui) {
   async function addFiles(p, files) {
     const box = modal('<div data-busy><h2 style="margin-top:0">🎬 영상 불러오는 중…</h2><p class="small muted" id="vl"></p></div>');
     let n = 0;
-    for (const f of files) {
+    // 촬영(저장) 순서대로
+    for (const f of [...files].sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0))) {
       if (!f.type.startsWith('video/')) continue;
       $('#vl', box).textContent = `${f.name} (${(f.size / 1048576).toFixed(1)}MB)`;
       try {
         const meta = await readMeta(f);
         const key = `${p.id}:${newId()}`;
         await putVideo(key, f);
-        p.clips.push({ key, name: f.name, duration: meta.duration, w: meta.w, h: meta.h, in: 0, out: +meta.duration.toFixed(2) });
+        p.clips.push({ key, name: f.name, mtime: f.lastModified || 0, duration: meta.duration, w: meta.w, h: meta.h, in: 0, out: +meta.duration.toFixed(2) });
         n++;
       } catch (e) { toast(e.message, true); }
     }
@@ -677,7 +728,7 @@ export function createShortsViews(ui) {
   }
 
   async function listView() {
-    const items = listShorts();
+    const items = mineOnly(listShorts());
     view.innerHTML = `
     <h1>🎬 숏폼 만들기</h1>
     <p class="sub">영상 파일을 올리고 어떤 영상인지 간단히 적으면, AI가 자막·썸네일·플랫폼별 캡션을 만들어요. 캡컷 편집용 묶음 또는 자막을 입힌 완성 영상으로 내려받을 수 있어요.</p>
@@ -696,7 +747,7 @@ export function createShortsViews(ui) {
       const files = [...e.target.files];
       if (!files.length) return;
       const s = getSettings();
-      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, style: 'capcut', font: 'pretendard', topTitle: true, subPos: 'middle', fit: 'cover', subtitles: [], captions: null, thumb: null, notes: [] };
+      const p = { id: newId(), title: files[0].name.replace(/\.[^.]+$/, ''), createdAt: new Date().toISOString(), clips: [], desc: '', target: 0, platforms: { reels: true, shorts: true, clip: true }, topTitle: true, fit: 'auto', motion: false, charVideo: { on: !!s.showCharVideo, pos: 'br', size: 1 }, subtitles: [], captions: null, thumb: null, notes: [] };
       saveShort(p);
       const n = await addFiles(p, files);
       if (n) location.hash = `#/shorts/${p.id}`; else { await deleteShort(p.id); listView(); }
@@ -707,8 +758,12 @@ export function createShortsViews(ui) {
   async function editorView(id) {
     const p = getShort(id);
     if (!p) { view.innerHTML = '<div class="empty">숏폼을 찾을 수 없어요. <a href="#/shorts">목록으로</a></div>'; return; }
+    ensureProfileFor?.(p);
     const env = await renderEnv();
     const s = getSettings();
+    const charImg = env.charPoses?.wave || env.charImg;
+    if (!p.charVideo) p.charVideo = { on: !!s.showCharVideo, pos: 'br', size: 1 };
+    let curT = 0;
     const keys = getKeys();
     // 영상 요소 준비
     const vids = [];
@@ -731,7 +786,7 @@ export function createShortsViews(ui) {
     <div class="shorts-grid">
       <div>
         <section class="panel">
-          <div class="row"><h3 style="margin:0">① 클립 (순서대로 이어 붙여요)</h3><span class="spacer"></span><label class="btn sm">+ 영상 추가<input type="file" id="sh-more" accept="video/*" multiple hidden></label></div>
+          <div class="row"><h3 style="margin:0">① 클립 (순서대로 이어 붙여요)</h3><span class="spacer"></span><button class="btn sm" id="sh-auto" title="촬영 순서로 정렬, 세로/가로에 맞춰 배치, 목표 길이에 맞게 구간 자동 선택">✨ 자동 배치</button><label class="btn sm">+ 영상 추가<input type="file" id="sh-more" accept="video/*" multiple hidden></label></div>
           <div id="sh-clips" class="clip-list"></div>
         </section>
         <section class="panel" style="margin-top:14px">
@@ -740,13 +795,17 @@ export function createShortsViews(ui) {
             <textarea id="sh-desc" rows="5" placeholder="예) 성수동 새로 생긴 카페 딸기라떼 리뷰. 크림이 엄청 두껍고 딸기가 통째로 들어감. 가격 6,500원. 웨이팅 20분. 귀엽고 발랄하게.">${esc(p.desc)}</textarea></div>
           <div class="two">
             <div class="field"><label for="sh-target">목표 길이</label><select id="sh-target">${[[0, '원본 그대로'], [15, '15초'], [30, '30초'], [60, '60초'], [90, '90초']].map(([v, l]) => `<option value="${v}" ${+p.target === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-            <div class="field"><label for="sh-style">자막 스타일</label><select id="sh-style">${Object.entries(SUB_STYLES).map(([k, v]) => `<option value="${k}" ${p.style === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-            <div class="field"><label for="sh-font">글씨체</label><select id="sh-font">${Object.entries(FONTS).map(([k, v]) => `<option value="${k}" ${fontOf(p) === v ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
-            <div class="field"><label for="sh-pos">대본 자막 위치</label><select id="sh-pos"><option value="middle" ${p.subPos !== 'lower' ? 'selected' : ''}>화면 정가운데</option><option value="lower" ${p.subPos === 'lower' ? 'selected' : ''}>가운데보다 약간 아래</option></select></div>
-            <div class="field"><label for="sh-fit">가로 영상 배치</label><select id="sh-fit"><option value="cover" ${p.fit !== 'blur' ? 'selected' : ''}>꽉 채우기 (가장자리 잘림)</option><option value="blur" ${p.fit === 'blur' ? 'selected' : ''}>흐린 배경 + 원본 비율</option></select></div>
+            <div class="field"><label for="sh-fit">영상 배치 (전체)</label><select id="sh-fit">${Object.entries(FITS).map(([k, v]) => `<option value="${k}" ${(p.fit || 'auto') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
             <div class="field"><label>플랫폼</label><div class="row small">${Object.entries(PLATFORMS).map(([k, v]) => `<label><input type="checkbox" data-pf="${k}" ${p.platforms?.[k] ? 'checked' : ''}> ${v.label}</label>`).join('')}</div></div>
           </div>
           <label class="small check-line"><input type="checkbox" id="sh-toptitle" ${showTitle(p) ? 'checked' : ''}><span>맨 위에 썸네일 제목을 처음부터 끝까지 고정으로 보여 주기</span></label>
+          <label class="small check-line"><input type="checkbox" id="sh-motion" ${p.motion ? 'checked' : ''}><span>장면마다 살짝 확대되는 효과 (캡컷 "줌 인"처럼)</span></label>
+          <div class="row small" style="margin:4px 0 8px">
+            <label><input type="checkbox" id="sh-charthumb" ${p.charThumb !== false && s.showCharShorts !== false ? 'checked' : ''} ${env.charImg ? '' : 'disabled'}> 썸네일에 ${esc(s.charName)} 넣기</label>
+            <label><input type="checkbox" id="sh-charvid" ${p.charVideo?.on ? 'checked' : ''} ${env.charImg ? '' : 'disabled'}> 영상 안에 ${esc(s.charName)} 넣기</label>
+            <select id="sh-charpos" style="width:auto"><option value="br" ${p.charVideo?.pos !== 'bl' ? 'selected' : ''}>오른쪽 아래</option><option value="bl" ${p.charVideo?.pos === 'bl' ? 'selected' : ''}>왼쪽 아래</option></select>
+            <label>크기 <input type="range" id="sh-charsize" min="0.5" max="1.8" step="0.05" value="${p.charVideo?.size || 1}" style="width:110px"></label>
+          </div>
           <div class="pf-sizes small">${Object.values(PLATFORMS).map((v) => `<div><b>${v.label}</b> ${esc(v.note)}</div>`).join('')}<div class="muted">→ 세 플랫폼 모두 1080×1920 영상 하나로 올리면 돼요. 글자는 미리보기의 "가림 영역"으로 확인하세요.</div></div>
           <div class="row">
             <select id="sh-prov">${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}" ${k === (keys[s.provider] ? s.provider : availableProviders()[0]) ? 'selected' : ''}>${v.label}${keys[k] ? '' : ' (키 없음)'}</option>`).join('')}</select>
@@ -754,9 +813,15 @@ export function createShortsViews(ui) {
             <button class="btn" id="sh-tpl">📄 AI 없이 만들기</button>
           </div>
         </section>
+        <section class="panel" style="margin-top:14px" id="tx-panel">
+          <div class="row"><h3 style="margin:0">③ 글자 디자인</h3><span class="spacer"></span><div class="seg" id="tx-target"><button data-tx="sub" class="on">대본 자막</button><button data-tx="title">상단 제목</button></div></div>
+          <p class="small muted" style="margin:6px 0 10px">캡컷 텍스트 패널처럼 조절하면 오른쪽 미리보기에 바로 보여요. 같은 종류(자막 전체 / 제목)에 한꺼번에 적용돼요.</p>
+          <div class="row tx-presets" id="tx-presets">${Object.entries(TEXT_PRESETS).map(([k, v]) => `<button class="btn sm tx-preset" data-preset="${k}" style="--pf:${v.fill};--ps:${v.strokeColor};--pb:${v.box ? v.boxColor : '#8a8a8a'}"><span>가</span>${v.label}</button>`).join('')}</div>
+          <div id="tx-controls"></div>
+        </section>
         <section class="panel" style="margin-top:14px">
-          <div class="row"><h3 style="margin:0">③ 자막</h3><span class="spacer"></span><button class="btn sm" id="sub-even">길이에 맞게 자동 배분</button><button class="btn sm" id="sub-add">+ 자막 추가</button></div>
-          <p class="small muted" style="margin:6px 0 10px">시간은 이어 붙인 전체 영상 기준(초)이에요. 대본 자막은 화면 가운데에 흰 글씨 + 검은 테두리로 나와요. 맨 위 고정 제목은 ④ 썸네일 제목과 같아요. Enter로 줄을 바꾸면 두 줄 자막이 돼요.</p>
+          <div class="row"><h3 style="margin:0">④ 자막</h3><span class="spacer"></span><button class="btn sm" id="sub-even">길이에 맞게 자동 배분</button><button class="btn sm" id="sub-add">+ 자막 추가</button></div>
+          <p class="small muted" style="margin:6px 0 10px">시간은 이어 붙인 전체 영상 기준(초)이에요. 대본 자막은 화면 가운데에 흰 글씨 + 검은 테두리로 나와요. 맨 위 고정 제목은 ⑤ 썸네일 제목과 같아요. Enter로 줄을 바꾸면 두 줄 자막이 돼요.</p>
           <div id="sh-subs"></div>
         </section>
       </div>
@@ -771,7 +836,7 @@ export function createShortsViews(ui) {
           </div>
         </section>
         <section class="panel" style="margin-top:14px">
-          <h3>④ 썸네일</h3>
+          <h3>⑤ 썸네일</h3>
           <canvas id="sh-thumb" width="${W}" height="${H}" style="width:100%;max-width:220px;display:block;margin:0 auto 10px;border-radius:12px"></canvas>
           <div class="field"><label>썸네일 제목 = 영상 맨 위 고정 제목 (줄바꿈 가능)</label><textarea id="th-title" rows="2"></textarea></div>
           <div class="two">
@@ -781,12 +846,12 @@ export function createShortsViews(ui) {
           <button class="btn sm" id="th-dl">⬇️ 썸네일 PNG</button>
         </section>
         <section class="panel" style="margin-top:14px">
-          <h3>⑤ 캡션</h3>
+          <h3>⑥ 캡션</h3>
           <div class="seg" id="cap-tabs"><button data-cap="instagram" class="on">인스타</button><button data-cap="youtube">유튜브</button><button data-cap="naver">네이버 클립</button></div>
           <div id="cap-body" style="margin-top:10px"></div>
         </section>
         <section class="panel" style="margin-top:14px">
-          <h3>⑥ 내보내기</h3>
+          <h3>⑦ 내보내기</h3>
           <label class="small check-line"><input type="checkbox" id="ex-cut" checked><span>캡컷 묶음에 "컷 편집 영상" 포함 (영상 길이만큼 녹화 시간이 걸려요)</span></label>
           <label class="small check-line"><input type="checkbox" id="ex-cut-title"><span>컷 편집 영상에 상단 제목까지 넣기 (대본 자막만 캡컷에서 SRT로)</span></label>
           <div class="row" style="flex-direction:column;align-items:stretch">
@@ -813,10 +878,11 @@ export function createShortsViews(ui) {
       for (let i = 0; i < p.clips.length; i++) {
         const L = clipLen(p.clips[i]);
         if (t < acc + L || i === p.clips.length - 1) {
+          curT = t;
           await seek(vids[i], (p.clips[i].in || 0) + Math.max(0, t - acc));
           stageCtx.fillStyle = '#000'; stageCtx.fillRect(0, 0, W, H);
-          drawVideo(stageCtx, vids[i], p.fit);
-          drawOverlay(stageCtx, p, t);
+          drawVideo(stageCtx, vids[i], fitOf(p, p.clips[i], vids[i]), p.clips[i], (t - acc) / Math.max(0.1, L), p.motion);
+          drawOverlay(stageCtx, p, t, { charImg });
           if ($('#pv-safe').value) drawSafeZone(stageCtx, $('#pv-safe').value);
           $('#pv-time').textContent = fmt(t);
           return;
@@ -834,6 +900,15 @@ export function createShortsViews(ui) {
             <b class="small">${String(i + 1).padStart(2, '0')}. ${esc(c.name)}</b>
             <div class="small muted">원본 ${c.duration.toFixed(1)}초 · ${c.w}×${c.h}</div>
             <div class="row small" style="flex-wrap:nowrap">시작 <input type="number" step="0.1" min="0" data-in="${i}" value="${(c.in || 0).toFixed(1)}" style="width:76px"> 끝 <input type="number" step="0.1" min="0" data-out="${i}" value="${(c.out ?? c.duration).toFixed(1)}" style="width:76px"> <span class="muted">= ${clipLen(c).toFixed(1)}초</span></div>
+            <details class="small clip-place"><summary>배치 조정 · ${esc((FITS[fitOf(p, c, vids[i])] || '').split(' (')[0])}${(c.zoom || 1) !== 1 ? ` · ${Math.round((c.zoom || 1) * 100)}%` : ''}</summary>
+              <div class="clip-place-grid">
+                <label>배치<select data-cf="${i}" data-k="fit"><option value="project" ${!c.fit || c.fit === 'project' ? 'selected' : ''}>전체 설정 따르기</option>${Object.entries(FITS).map(([k, v]) => `<option value="${k}" ${c.fit === k ? 'selected' : ''}>${v.split(' (')[0]}</option>`).join('')}</select></label>
+                <label>확대 <input type="range" min="1" max="2.5" step="0.05" data-cf="${i}" data-k="zoom" value="${c.zoom || 1}"></label>
+                <label>좌우 <input type="range" min="-1" max="1" step="0.02" data-cf="${i}" data-k="px" value="${c.px || 0}"></label>
+                <label>상하 <input type="range" min="-1" max="1" step="0.02" data-cf="${i}" data-k="py" value="${c.py || 0}"></label>
+                <button class="btn sm" data-creset="${i}">초기화</button>
+              </div>
+            </details>
           </div>
           <div class="clip-btns"><button class="btn sm" data-up="${i}" ${i ? '' : 'disabled'}>▲</button><button class="btn sm" data-down="${i}" ${i < p.clips.length - 1 ? '' : 'disabled'}>▼</button><button class="btn sm danger" data-rm="${i}">✕</button></div>
         </div>`).join('') || '<p class="muted small">클립이 없어요. 영상을 추가해 주세요.</p>';
@@ -858,6 +933,14 @@ export function createShortsViews(ui) {
       });
       $$('[data-in]').forEach((el) => onTrim(el, 'in'));
       $$('[data-out]').forEach((el) => onTrim(el, 'out'));
+      const clipStart = (i) => p.clips.slice(0, i).reduce((a, c) => a + clipLen(c), 0);
+      $$('[data-cf]').forEach((el) => el.addEventListener('input', () => {
+        const i = +el.dataset.cf;
+        const c = p.clips[i];
+        c[el.dataset.k] = el.dataset.k === 'fit' ? el.value : Number(el.value);
+        persist(); previewAt(clipStart(i) + Math.min(0.5, clipLen(c) / 2));
+      }));
+      $$('[data-creset]').forEach((b) => b.addEventListener('click', () => { const c = p.clips[+b.dataset.creset]; delete c.fit; c.zoom = 1; c.px = 0; c.py = 0; persist(); drawClips(); previewAt(clipStart(+b.dataset.creset) + 0.3); }));
     }
 
     // ---------- 자막 ----------
@@ -923,18 +1006,94 @@ export function createShortsViews(ui) {
     }
     $$('#cap-tabs button').forEach((b) => b.addEventListener('click', () => { capKey = b.dataset.cap; $$('#cap-tabs button').forEach((x) => x.classList.toggle('on', x === b)); drawCaption(); }));
 
-    async function refreshAll() { updateLen(); await drawClips(); drawSubs(); fillThumbFields(); drawCaption(); drawThumb(); }
+    // ---------- 글자 디자인 ----------
+    let txWhich = 'sub';
+    const setTx = (k, v) => { p.text = p.text || {}; p.text[txWhich] = { ...textOf(p, txWhich), ...(p.text[txWhich] || {}), [k]: v }; };
+    const txPreviewT = () => (txWhich === 'sub' ? (activeSub(p, curT) ? curT : firstSubT()) : curT);
+    let txTimer;
+    const txRefresh = async () => {
+      clearTimeout(txTimer);
+      await loadFonts(p, titleText(p));
+      previewAt(txPreviewT());
+      if (txWhich === 'title') txTimer = setTimeout(drawThumb, 300);
+    };
+    function drawTextControls() {
+      const st = textOf(p, txWhich);
+      const rng = (k, label, min, max, step, unit = '') => `<label class="tx-rng">${label}<input type="range" min="${min}" max="${max}" step="${step}" data-tx-k="${k}" value="${st[k]}"><output>${st[k]}${unit}</output></label>`;
+      $('#tx-controls').innerHTML = `
+        <div class="two">
+          <div class="field"><label>글씨체</label><select data-tx-k="font">${Object.entries(FONTS).map(([k, v]) => `<option value="${k}" ${st.font === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+          <div class="field"><label>최대 줄 수</label><select data-tx-k="maxLines">${[1, 2, 3].map((n) => `<option value="${n}" ${+st.maxLines === n ? 'selected' : ''}>${n}줄</option>`).join('')}</select></div>
+        </div>
+        <div class="tx-grid">
+          ${rng('size', '글자 크기', 40, 170, 1, 'px')}
+          ${rng('letter', '자간', -10, 30, 0.5, 'px')}
+          ${rng('line', '행간', 0.9, 1.8, 0.02, '배')}
+          ${rng('stroke', '테두리 두께', 0, 40, 1, 'px')}
+          ${rng('y', '세로 위치', 5, 92, 0.5, '%')}
+        </div>
+        <div class="row small tx-colors">
+          <label>글자 <input type="color" data-tx-k="fill" value="${st.fill}"></label>
+          <label>테두리 <input type="color" data-tx-k="strokeColor" value="${st.strokeColor}"></label>
+          <label>강조어 <input type="color" data-tx-k="accent" value="${st.accent}"></label>
+          <label><input type="checkbox" data-tx-k="box" ${st.box ? 'checked' : ''}> 배경 상자 <input type="color" data-tx-k="boxColor" value="${st.boxColor}"></label>
+          <label><input type="checkbox" data-tx-k="shadow" ${st.shadow ? 'checked' : ''}> 그림자</label>
+          <span class="spacer"></span>
+          <button class="btn sm" id="tx-center">가운데로</button>
+          <button class="btn sm" id="tx-reset">기본값</button>
+          <button class="btn sm" id="tx-copy" title="지금 설정을 ${txWhich === 'sub' ? '상단 제목' : '대본 자막'}에도 적용 (크기·위치 제외)">${txWhich === 'sub' ? '제목' : '자막'}에도 적용</button>
+        </div>`;
+      $$('[data-tx-k]', $('#tx-controls')).forEach((el) => el.addEventListener('input', () => {
+        const k = el.dataset.txK;
+        const v = el.type === 'checkbox' ? el.checked : (el.type === 'range' || k === 'maxLines') ? Number(el.value) : el.value;
+        setTx(k, v);
+        if (el.nextElementSibling?.tagName === 'OUTPUT') el.nextElementSibling.textContent = `${v}${{ size: 'px', letter: 'px', line: '배', stroke: 'px', y: '%' }[k] || ''}`;
+        persist(); txRefresh();
+      }));
+      $('#tx-center').addEventListener('click', () => { setTx('y', txWhich === 'sub' ? 50 : TEXT_DEFAULTS.title.y); persist(); drawTextControls(); txRefresh(); });
+      $('#tx-reset').addEventListener('click', () => { p.text = { ...(p.text || {}), [txWhich]: { ...TEXT_DEFAULTS[txWhich] } }; persist(); drawTextControls(); txRefresh(); });
+      $('#tx-copy').addEventListener('click', () => {
+        const other = txWhich === 'sub' ? 'title' : 'sub';
+        const { size, y, maxLines, ...look } = textOf(p, txWhich);
+        p.text = { ...(p.text || {}), [other]: { ...textOf(p, other), ...look } };
+        persist(); txRefresh(); drawThumb(); toast('같은 디자인을 적용했어요.');
+      });
+    }
+    $$('#tx-target button').forEach((b) => b.addEventListener('click', () => {
+      txWhich = b.dataset.tx;
+      $$('#tx-target button').forEach((x) => x.classList.toggle('on', x === b));
+      drawTextControls(); previewAt(txPreviewT());
+    }));
+    $$('[data-preset]').forEach((b) => b.addEventListener('click', () => {
+      const { label, ...look } = TEXT_PRESETS[b.dataset.preset];
+      void label;
+      p.text = { ...(p.text || {}), [txWhich]: { ...textOf(p, txWhich), ...look } };
+      persist(); drawTextControls(); txRefresh();
+    }));
+
+    async function refreshAll() { updateLen(); await drawClips(); drawSubs(); fillThumbFields(); drawCaption(); drawTextControls(); drawThumb(); }
 
     // ---------- 입력 ----------
     $('#sh-title').addEventListener('input', (e) => { p.title = e.target.value; persist(); });
     $('#sh-desc').addEventListener('input', (e) => { p.desc = e.target.value; persist(); });
     $('#sh-target').addEventListener('change', (e) => { p.target = +e.target.value; persist(); });
-    $('#sh-style').addEventListener('change', (e) => { p.style = e.target.value; persist(); previewAt(0); });
-    $('#sh-font').addEventListener('change', async (e) => { p.font = e.target.value; persist(); await loadFonts(p, titleText(p)); drawThumb(); });
-    $('#sh-pos').addEventListener('change', (e) => { p.subPos = e.target.value; persist(); previewAt(firstSubT()); });
+    $('#sh-motion').addEventListener('change', (e) => { p.motion = e.target.checked; persist(); previewAt(curT); });
+    $('#sh-charthumb').addEventListener('change', (e) => { p.charThumb = e.target.checked; persist(); drawThumb(); });
+    const charUpd = () => { p.charVideo = { on: $('#sh-charvid').checked, pos: $('#sh-charpos').value, size: Number($('#sh-charsize').value) }; persist(); previewAt(curT); };
+    ['#sh-charvid', '#sh-charpos', '#sh-charsize'].forEach((sel) => $(sel).addEventListener('input', charUpd));
     $('#sh-toptitle').addEventListener('change', (e) => { p.topTitle = e.target.checked; persist(); previewAt(0); });
-    $('#sh-fit').addEventListener('change', (e) => { p.fit = e.target.value; persist(); previewAt(0); });
+    $('#sh-fit').addEventListener('change', (e) => { p.fit = e.target.value; persist(); previewAt(curT); });
     $$('[data-pf]').forEach((el) => el.addEventListener('change', () => { p.platforms[el.dataset.pf] = el.checked; persist(); updateLen(); }));
+    $('#sh-auto').addEventListener('click', async () => {
+      if (!p.clips.length) return;
+      const order = autoArrange(p);
+      const vv = order.map((i) => vids[i]);
+      vids.splice(0, vids.length, ...vv);
+      seq = null; persist();
+      $('#sh-fit').value = 'auto';
+      await refreshAll(); previewAt(0);
+      toast(`촬영 순서로 정렬하고 배치를 맞췄어요${p.target ? ` · 목표 ${p.target}초에 맞게 구간을 골랐어요` : ''}.`);
+    });
     $('#sh-more').addEventListener('change', async (e) => {
       const before = p.clips.length;
       await addFiles(p, [...e.target.files]);
@@ -962,9 +1121,10 @@ export function createShortsViews(ui) {
       if (mode === 'ai' && !getKeys()[prov]) { toast(`${PROVIDERS[prov].label} API 키가 없어요. 설정에서 넣거나 "AI 없이 만들기"를 써 주세요.`, true); return; }
       const box = modal('<div data-busy><h2 style="margin-top:0">🐑 모아가 영상 보는 중…</h2><p class="small muted">장면을 보고 자막·썸네일·캡션을 만들고 있어요. 보통 20초~1분 걸려요.</p></div>');
       try {
-        const plan = mode === 'ai' ? await aiPlan(p, prov, vids) : templatePlan(p, getSettings().handle);
+        if (mode !== 'ai' && p.target && p.clips.every((c) => (c.in || 0) === 0 && (c.out ?? c.duration) >= c.duration - 0.05)) autoTrim(p, p.target);
+        const plan = mode === 'ai' ? await aiPlan(p, prov, vids) : templatePlan(p, getSettings().handle, getSettings().charName);
         applyPlan(p, plan);
-        if (!p.subtitles.length) applyPlan(p, { ...templatePlan(p, getSettings().handle), clips: [] });
+        if (!p.subtitles.length) applyPlan(p, { ...templatePlan(p, getSettings().handle, getSettings().charName), clips: [] });
         p.model = mode === 'ai' ? prov : 'template';
         persist();
         closeModal();
@@ -978,7 +1138,7 @@ export function createShortsViews(ui) {
     $('#sh-tpl').addEventListener('click', () => runPlan('tpl'));
 
     // ---------- 미리보기 재생 ----------
-    const getSeq = () => { if (!seq) seq = new Sequencer(p, vids, stage); return seq; };
+    const getSeq = () => { if (!seq) seq = new Sequencer(p, vids, stage, charImg); return seq; };
     $('#pv-play').addEventListener('click', async () => {
       const sq = getSeq();
       sq.stop(); await new Promise((r) => setTimeout(r, 50));

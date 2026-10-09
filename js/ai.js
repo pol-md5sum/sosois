@@ -623,6 +623,30 @@ export async function generateImage(provider, { apiKey, model, prompt, aspect = 
   throw new Error('배경 이미지는 GPT 또는 Gemini 키로 만들 수 있어요. (Claude는 이미지 생성을 지원하지 않음)');
 }
 
+// ---------- 계정별 캐릭터 이름 반영 ----------
+// 기본 프롬프트·템플릿은 모아 기준이라, 다른 캐릭터 계정이면 이름·브랜드를 바꿔 넣는다
+export function personaSystem(base, { charName = '모아', charDesc = '', brand = '' } = {}) {
+  if (charName === '모아' && (!brand || brand.includes('모아'))) return base;
+  let out = base.replace(/모아(?=\s?(올|와|오|봤|볼|둔|뒀|놓))/g, '골라');
+  if (brand) out = out.replace('"MOA | 모아"', `"${brand}"`);
+  if (charDesc) out = out.replace('모아는 귀엽고 복슬복슬한 양 캐릭터이자', `${charName}는 ${charDesc}이자`);
+  return out.replace(/모아/g, charName);
+}
+// "모아올게"처럼 '모으다' 뜻으로 쓴 말은 이름이 아니라 "골라올게"로 바꾼다
+export function renameCharacter(obj, charName, emoji = '') {
+  if (!charName || charName === '모아') return obj;
+  const walk = (v) => {
+    if (typeof v === 'string') {
+      const out = v.replace(/모아(?=\s?(올|와|오|봤|볼|둔|뒀|놓))/g, '골라').replace(/모아/g, charName);
+      return emoji ? out.replace(/🐑/g, emoji) : out;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'type' || k === 'category' ? x : walk(x)]));
+    return v;
+  };
+  return walk(obj);
+}
+
 // ---------- 첫 게시물: 모아 소개 ----------
 export function introContent() {
   const blank = { highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' } };

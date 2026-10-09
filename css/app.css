@@ -194,3 +194,23 @@ td select { width: auto; padding: 5px 8px; }
 .pf-sizes { display: grid; gap: 4px; margin: 8px 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--soft, #f6f6f8); }
 #sh-len.warn { background: #fde8ec; color: #c0294a; }
 #pv-safe { width: auto; padding: 4px 8px; }
+.profile-switch { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.profile-switch img { object-fit: contain; flex: none; }
+.profile-switch select { flex: 1; min-width: 0; font-weight: 800; border: 0; background: transparent; padding: 4px 2px; }
+.profile-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.profile-card { display: flex; gap: 10px; align-items: center; padding: 10px; border: 2px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; text-align: left; font: inherit; }
+.profile-card.on { border-color: var(--brown); box-shadow: var(--shadow); }
+.profile-card img { width: 46px; height: 52px; object-fit: contain; }
+@media (max-width: 860px) { .profile-switch { flex: none; } }
+.tx-presets { gap: 6px; margin-bottom: 10px; }
+.tx-preset { display: inline-flex; align-items: center; gap: 6px; }
+.tx-preset span { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--pb); font-weight: 900; color: var(--pf); -webkit-text-stroke: 2px var(--ps); paint-order: stroke fill; }
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 16px; margin: 6px 0 10px; }
+.tx-rng { display: grid; grid-template-columns: 78px 1fr 58px; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.tx-rng output { font-size: 12px; color: var(--muted, #888); text-align: right; }
+.tx-colors { gap: 12px; align-items: center; }
+.tx-colors input[type=color] { width: 34px; height: 26px; padding: 0; vertical-align: middle; }
+.clip-place summary { cursor: pointer; color: var(--brown); font-weight: 700; margin-top: 4px; }
+.clip-place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; align-items: center; margin-top: 6px; }
+.clip-place-grid label { display: grid; gap: 2px; }
+.clip-place-grid select { width: 100%; }
