@@ -1,6 +1,7 @@
 // 🎬 숏폼 만들기 — 영상 업로드 → AI 자막·썸네일·캡션 → 캡컷 편집용 묶음 / 자막 입힌 완성 영상
-import { PROVIDERS, callModel, extractJson, memoLines, visitSpecs } from './ai.js';
-import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShorts, getShort, saveShort, deleteShort, newId, mineOnly } from './store.js';
+import { PROVIDERS, callModel, extractJson, memoLines, visitSpecs, articleInfo, GUIDE_DISCLAIMER } from './ai.js';
+import { renderCard } from './render.js';
+import { getSettings, getKeys, availableProviders, putVideo, getVideo, listShorts, getShort, saveShort, deleteShort, newId, mineOnly, getContent } from './store.js';
 
 export const W = 1080;
 export const H = 1920;
@@ -34,7 +35,7 @@ export const titleText = (p) => String(p?.thumb?.title || p?.hook || p?.title ||
 
 // ---------- 시간 ----------
 export const clipLen = (c) => Math.max(0.1, (c.out ?? c.duration) - (c.in ?? 0));
-export const totalLen = (p) => (p.clips || []).reduce((a, c) => a + clipLen(c), 0);
+export const totalLen = (p) => (p.kind === 'slides' ? (p.slides || []).filter((x) => x.on !== false).reduce((a, x) => a + (Number(x.dur) || 0), 0) : (p.clips || []).reduce((a, c) => a + clipLen(c), 0));
 const fmt = (sec) => {
   const s = Math.max(0, sec);
   return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
@@ -749,11 +750,122 @@ export function guideText(p, { cutHasTitle = false } = {}) {
   return lines.join('\n');
 }
 
+
+// =====================================================================
+// 🎞️ AI 숏폼 (슬라이드형) — 카드뉴스를 9:16 영상으로. 촬영·편집 없이 대본·자막·캡션까지 자동
+// =====================================================================
+export const SLIDE_FORMAT = '1080x1920';
+const flat = (t) => String(t || '').replace(/\s*\n\s*/g, ' ').trim();
+// 카드 한 장 → 읽어 줄 대본 한두 문장
+export function slideNarration(card) {
+  const head = flat(card.title);
+  if (card.type === 'HOOK') return head;
+  const parts = [head];
+  if (card.body) parts.push(flat(card.body));
+  if (card.items?.length) parts.push(card.items.map(flat).join(', '));
+  if (card.specs?.length) parts.push(card.specs.map((x) => `${x.k} ${x.v}`).join(', '));
+  if (card.compare?.left) parts.push(`${card.compare.leftTitle || ''} ${flat(card.compare.left)} / ${card.compare.rightTitle || ''} ${flat(card.compare.right)}`.trim());
+  return parts.filter(Boolean).join('. ').slice(0, 200);
+}
+// 글자 수에 맞춰 보여 줄 시간(초): 읽는 데 걸리는 만큼, 최소 2.8초
+export function slideDur(narration, type) {
+  if (type === 'HOOK') return 2.8;
+  if (type === 'CTA') return 3.2;
+  const n = String(narration || '').replace(/\s/g, '').length;
+  return +Math.min(7, Math.max(2.8, 2.4 + n * 0.06)).toFixed(1);
+}
+const summaryLines = (c) => (c.cards || []).filter((k) => !['HOOK', 'CTA'].includes(k.type) && (k.title || k.body)).slice(0, 4).map((k) => `• ${flat(k.title)}${k.body ? `: ${flat(k.body)}` : ''}`);
+// 카드뉴스 캡션·출처에서 인스타·유튜브·네이버 캡션을 만든다
+export function slideCaptions(c, handle) {
+  const tags = c.hashtags || [];
+  const lines = summaryLines(c);
+  const title = flat(c.cards?.[0]?.title) || c.title;
+  const src = (c.sources || []).slice(0, 4).map((x) => `- ${x.name || ''}${x.url ? ` ${x.url}` : ''}`.trim());
+  const a = articleInfo(c.news || {}, c.sources || []);
+  const origin = !c.guide && a.title ? `📰 원문: ${a.outlet ? `${a.outlet} ` : ''}「${a.title}」${a.link ? ` ${a.link}` : ''}` : '';
+  const guide = c.guide ? [`※ ${GUIDE_DISCLAIMER}`, ...(src.length ? ['📚 근거', ...src] : []), c.checkedAt ? `확인일 ${new Date(c.checkedAt).toLocaleDateString('ko-KR')}` : ''] : [];
+  const extra = [...guide, origin].filter(Boolean);
+  return {
+    instagram: { text: String(c.caption || '').trim(), hashtags: tags.slice(0, 15) },
+    youtube: { title: `${title} #Shorts`.slice(0, 100), description: [...lines, '', ...extra, '', `${handle} 구독하고 더 보기`].join('\n').replace(/\n{3,}/g, '\n\n'), tags: ['Shorts', ...tags].slice(0, 10) },
+    naver: { title: title.slice(0, 30), description: [...lines.slice(0, 2), ...extra].join('\n'), tags: tags.slice(0, 10) },
+  };
+}
+export function buildSlideProject(content, settings = {}) {
+  const slides = (content.cards || []).map((card, i) => { const n = slideNarration(card); return { i, dur: slideDur(n, card.type), narration: n, on: true }; });
+  return {
+    id: newId(), kind: 'slides', title: content.title, createdAt: new Date().toISOString(), contentId: content.id,
+    slides, clips: [], subtitles: [], platforms: { reels: true, shorts: true, clip: true }, zoom: true, fade: true,
+    captions: slideCaptions(content, settings.handle || ''), thumb: { title: flat(content.cards?.[0]?.title) || content.title },
+    notes: content.guide ? ['육아 정보 콘텐츠예요. 영상·캡션에 출처와 면책 문구가 들어 있는지, 카드뉴스 편집기의 "육아 정보 점검"이 끝났는지 확인하세요.'] : [],
+  };
+}
+const REC_TYPES = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+// 슬라이드 재생·녹화: 미리 그려 둔 9:16 장면을 시간에 맞춰 이어 붙인다 (크로스페이드 + 살짝 확대)
+export class SlidePlayer {
+  constructor(frames, durs, canvas, { fade = true, zoom = true } = {}) {
+    this.frames = frames; this.durs = durs; this.canvas = canvas; this.ctx = canvas.getContext('2d');
+    this.fade = fade; this.zoom = zoom; this.stopFlag = false;
+  }
+  total() { return this.durs.reduce((a, b) => a + b, 0); }
+  locate(t) {
+    let acc = 0;
+    for (let i = 0; i < this.durs.length; i++) { if (t < acc + this.durs[i] || i === this.durs.length - 1) return { i, local: Math.max(0, t - acc), dur: this.durs[i] }; acc += this.durs[i]; }
+    return { i: 0, local: 0, dur: 1 };
+  }
+  drawAt(t, { safe = false } = {}) {
+    const ctx = this.ctx;
+    const { i, local, dur } = this.locate(t);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    const put = (k, a, prog) => {
+      if (!this.frames[k]) return;
+      const z = this.zoom ? 1 + 0.025 * prog : 1;
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, H / 2); ctx.scale(z, z); ctx.drawImage(this.frames[k], -W / 2, -H / 2, W, H); ctx.restore();
+    };
+    put(i, 1, local / dur);
+    const FADE = 0.35;
+    if (this.fade && i < this.frames.length - 1 && local > dur - FADE) put(i + 1, (local - (dur - FADE)) / FADE, 0);
+    if (safe) drawSafeZone(ctx, safe === true ? 'all' : safe);
+  }
+  stop() { this.stopFlag = true; }
+  async play({ onTime, safe = false } = {}) {
+    this.stopFlag = false;
+    const total = this.total();
+    const t0 = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const t = (performance.now() - t0) / 1000;
+        if (this.stopFlag || t >= total) { resolve(); return; }
+        this.drawAt(t, { safe }); onTime?.(t);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    onTime?.(Math.min(total, (performance.now() - t0) / 1000));
+  }
+  async record({ onProgress } = {}) {
+    const mime = REC_TYPES.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    if (!mime) throw new Error('이 브라우저는 영상 녹화를 지원하지 않아요. PC용 크롬을 사용해 주세요.');
+    const rec = new MediaRecorder(this.canvas.captureStream(30), { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((res) => { rec.onstop = res; });
+    this.drawAt(0);
+    rec.start(500);
+    await this.play({ onTime: (t) => onProgress?.(Math.min(1, t / this.total())) });
+    this.drawAt(this.total());
+    await new Promise((r) => setTimeout(r, 300));
+    rec.stop();
+    await stopped;
+    return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext: mime.includes('mp4') ? 'mp4' : 'webm' };
+  }
+}
+
 // =====================================================================
 // 화면
 // =====================================================================
 export function createShortsViews(ui) {
-  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit } = ui;
+  const { $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit, loadBgs } = ui;
 
   async function readMeta(file) {
     const v = await loadVideoEl(file);
@@ -787,14 +899,18 @@ export function createShortsViews(ui) {
     view.innerHTML = `
     <h1>🎬 숏폼 만들기</h1>
     <p class="sub">영상 파일을 올리고 어떤 영상인지 간단히 적으면, AI가 자막·썸네일·플랫폼별 캡션을 만들어요. 캡컷 편집용 묶음 또는 자막을 입힌 완성 영상으로 내려받을 수 있어요.</p>
+    <section class="panel" style="margin-bottom:14px">
+      <h3>🎞️ 카드뉴스로 AI 숏폼 만들기 (촬영·편집 없이)</h3>
+      <p class="small muted" style="margin:0">카드뉴스 편집기의 <b>🎬 AI 숏폼 만들기</b> 버튼을 누르면 카드를 9:16 영상으로 이어 붙이고, 대본·썸네일·인스타·유튜브·네이버 캡션까지 자동으로 만들어요. 해피해피는 "👶 오늘의 육아정보"에서 주제를 고르면 카드뉴스와 숏폼이 한 번에 나와요.</p>
+    </section>
     <section class="panel url-box">
       <h3>새 숏폼 시작하기</h3>
       <p class="small muted" style="margin:0 0 10px">영상 여러 개 선택 가능 (MP4·MOV·WEBM). 영상은 이 브라우저 안에만 저장되고 서버로 올라가지 않아요.</p>
       <label class="btn primary big">🎞️ 영상 파일 선택<input type="file" id="sh-files" accept="video/*" multiple hidden></label>
     </section>
     <h2>내 숏폼 (${items.length})</h2>
-    ${items.length ? `<div class="table-wrap"><table><tr><th>제목</th><th>클립</th><th>길이</th><th>수정</th><th></th></tr>
-      ${items.map((p) => `<tr><td><a href="#/shorts/${p.id}"><b>${esc(p.title || '제목 없음')}</b></a></td><td>${p.clips.length}개</td><td>${totalLen(p).toFixed(1)}초</td>
+    ${items.length ? `<div class="table-wrap"><table><tr><th>제목</th><th>구성</th><th>길이</th><th>수정</th><th></th></tr>
+      ${items.map((p) => `<tr><td><a href="#/shorts/${p.id}"><b>${esc(p.title || '제목 없음')}</b></a></td><td>${p.kind === 'slides' ? `🎞️ 슬라이드 ${p.slides.length}장` : `${p.clips.length}개`}</td><td>${totalLen(p).toFixed(1)}초</td>
       <td class="small">${esc(new Date(p.updatedAt || p.createdAt).toLocaleString('ko-KR'))}</td>
       <td><div class="row"><a class="btn sm" href="#/shorts/${p.id}">열기</a><button class="btn sm danger" data-del="${p.id}">삭제</button></div></td></tr>`).join('')}
     </table></div>` : `<div class="panel empty"><img src="${esc(charSrc ? charSrc() : 'assets/moa/moa.png')}" alt=""><p>아직 만든 숏폼이 없어요.</p></div>`}`;
@@ -810,10 +926,166 @@ export function createShortsViews(ui) {
     $$('[data-del]').forEach((b) => b.addEventListener('click', async () => { if (confirm('이 숏폼과 영상 파일을 삭제할까요?')) { await deleteShort(b.dataset.del); listView(); } }));
   }
 
+
+  // ---------- 🎞️ 슬라이드형 숏폼 편집기 ----------
+  async function slidesEditor(p) {
+    const content = getContent(p.contentId);
+    if (!content) { view.innerHTML = '<div class="empty">원본 카드뉴스를 찾을 수 없어요(삭제됨). <a href="#/shorts">목록으로</a></div>'; return; }
+    const box = modal('<div data-busy><h2 style="margin-top:0">🎞️ 슬라이드 그리는 중…</h2><p class="small muted" id="sl-prog">장면을 9:16으로 만들고 있어요.</p></div>');
+    const env0 = await renderEnv();
+    const env = { ...env0, bgs: await loadBgs(content.id) };
+    const sc = { ...content, format: SLIDE_FORMAT };
+    const frames = [];
+    for (let i = 0; i < content.cards.length; i++) {
+      const cv = document.createElement('canvas');
+      await renderCard(cv, sc, i, env);
+      frames.push(cv);
+      const pr = $('#sl-prog', box); if (pr) pr.textContent = `${i + 1} / ${content.cards.length}`;
+    }
+    closeModal();
+    // 카드 수가 바뀌었으면 슬라이드 목록을 맞춘다
+    while (p.slides.length < frames.length) { const k = p.slides.length; const n = slideNarration(content.cards[k]); p.slides.push({ i: k, dur: slideDur(n, content.cards[k].type), narration: n, on: true }); }
+    p.slides = p.slides.slice(0, frames.length);
+    const persist = () => { try { saveShort(p); } catch (e) { toast(e.message, true); } };
+    const activeIdx = () => p.slides.map((x, i) => (x.on !== false ? i : -1)).filter((i) => i >= 0);
+    const player = () => new SlidePlayer(activeIdx().map((i) => frames[i]), activeIdx().map((i) => Math.max(1, Number(p.slides[i].dur) || 3)), $('#sh-stage'), { fade: p.fade !== false, zoom: p.zoom !== false });
+    let pl = null;
+
+    view.innerHTML = `
+    <div class="row" style="margin-bottom:12px">
+      <a class="btn sm" href="#/shorts">◀ 목록</a>
+      <input type="text" id="sh-title" value="${esc(p.title)}" style="max-width:520px;font-weight:800;font-size:18px">
+      <span class="chip" id="sh-len"></span>
+      <a class="btn sm" href="#/editor/${esc(content.id)}">✏️ 카드 내용 고치기</a>
+    </div>
+    ${p.notes?.length ? `<div class="notice"><b>확인할 점</b><ul style="margin:6px 0 0;padding-left:18px">${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
+    <div class="shorts-grid">
+      <div>
+        <section class="panel">
+          <h3 style="margin-top:0">① 슬라이드 (카드뉴스 ${frames.length}장 → 영상)</h3>
+          <p class="small muted" style="margin:0 0 10px">시간은 글자 수에 맞춰 자동으로 정해졌어요. 필요 없는 장은 체크를 풀면 영상에서 빠져요. 대본은 직접 읽거나 캡컷의 "텍스트 음성 변환"에 붙여 넣어 쓸 수 있어요.</p>
+          <div id="sl-list"></div>
+        </section>
+        <section class="panel" style="margin-top:14px">
+          <h3 style="margin-top:0">② 영상 효과</h3>
+          <label class="small check-line"><input type="checkbox" id="sl-fade" ${p.fade !== false ? 'checked' : ''}><span>장면 사이 부드러운 전환(크로스페이드)</span></label>
+          <label class="small check-line"><input type="checkbox" id="sl-zoom" ${p.zoom !== false ? 'checked' : ''}><span>장면마다 천천히 확대</span></label>
+          <p class="small muted" style="margin:6px 0 0">음악은 저작권 문제가 없도록 각 플랫폼의 음원 라이브러리에서 올릴 때 넣어 주세요. 이 영상에는 소리가 들어 있지 않아요.</p>
+        </section>
+        <section class="panel" style="margin-top:14px">
+          <div class="row"><h3 style="margin:0">③ 전체 대본</h3><span class="spacer"></span><button class="btn sm" id="sl-copy">복사</button></div>
+          <textarea id="sl-script" rows="8" readonly style="margin-top:8px"></textarea>
+        </section>
+      </div>
+      <div class="shorts-side">
+        <section class="panel">
+          <h3>미리보기</h3>
+          <canvas id="sh-stage" width="${W}" height="${H}"></canvas>
+          <div class="row" style="justify-content:center;margin-top:8px">
+            <button class="btn sm primary" id="pv-play">▶ 재생</button><button class="btn sm" id="pv-stop">■ 정지</button>
+            <select id="pv-safe" class="small" title="가림 영역 표시"><option value="">가림 영역 끄기</option><option value="all">가림 영역: 3개 공통</option>${Object.entries(PLATFORMS).map(([k, v]) => `<option value="${k}">가림 영역: ${v.label}</option>`).join('')}</select>
+            <span class="small muted" id="pv-time">0:00.0</span>
+          </div>
+          <div class="pf-sizes small">${Object.values(PLATFORMS).map((v) => `<div><b>${v.label}</b> ${esc(v.note)}</div>`).join('')}</div>
+        </section>
+        <section class="panel" style="margin-top:14px">
+          <h3>④ 캡션 (플랫폼별)</h3>
+          <div class="seg" id="cap-tabs"><button data-cap="instagram" class="on">인스타</button><button data-cap="youtube">유튜브</button><button data-cap="naver">네이버 클립</button></div>
+          <div id="cap-body" style="margin-top:10px"></div>
+        </section>
+        <section class="panel" style="margin-top:14px">
+          <h3>⑤ 내보내기</h3>
+          <div class="row" style="flex-direction:column;align-items:stretch">
+            <button class="btn primary" id="ex-video">🎬 숏폼 영상 만들기 (MP4)</button>
+            <button class="btn" id="ex-thumb">🖼️ 썸네일 PNG (9:16)</button>
+            <button class="btn" id="ex-zip">📦 업로드 묶음 ZIP (영상·썸네일·캡션·대본)</button>
+          </div>
+          <p class="small muted" style="margin-top:8px">영상은 브라우저에서 실시간으로 녹화해 만들어요(40초 영상 ≈ 40초). 끝날 때까지 이 탭을 그대로 두세요. PC용 크롬에서는 MP4로 저장돼요.</p>
+          <div class="meter" id="ex-bar" style="margin-top:8px;display:none"><i style="width:0%"></i></div>
+        </section>
+      </div>
+    </div>`;
+
+    const stage = $('#sh-stage');
+    const refreshLen = () => { const t = totalLen(p); const over = Object.entries(PLATFORMS).filter(([k, v]) => p.platforms?.[k] && v.max && t > v.max).map(([, v]) => v.label); $('#sh-len').textContent = `슬라이드 ${activeIdx().length}장 · ${t.toFixed(1)}초 · 9:16 1080×1920${over.length ? ` · ⚠️ ${over.join('·')} 3분 초과` : ''}`; $('#sh-len').classList.toggle('warn', over.length > 0); };
+    const refreshScript = () => { $('#sl-script').value = activeIdx().map((i, n) => `${n + 1}. ${p.slides[i].narration}`).join('\n'); };
+    const show = (t = 0) => { pl = player(); pl.drawAt(t, { safe: $('#pv-safe').value || false }); $('#pv-time').textContent = fmt(t); };
+    function drawList() {
+      $('#sl-list').innerHTML = p.slides.map((sl, i) => `
+        <div class="clip-row" style="${sl.on === false ? 'opacity:.45' : ''}">
+          <canvas data-sl="${i}" width="90" height="160"></canvas>
+          <div class="clip-info">
+            <label class="small check-line" style="margin:0"><input type="checkbox" data-on="${i}" ${sl.on !== false ? 'checked' : ''}><span><b>${String(i + 1).padStart(2, '0')}. ${esc(flat(content.cards[i].title).slice(0, 26))}</b></span></label>
+            <div class="row small" style="flex-wrap:nowrap;margin:4px 0">시간 <input type="number" min="1" max="15" step="0.1" data-dur="${i}" value="${Number(sl.dur).toFixed(1)}" style="width:76px"> 초</div>
+            <textarea rows="2" data-nar="${i}" placeholder="대본">${esc(sl.narration)}</textarea>
+          </div>
+        </div>`).join('');
+      $$('[data-sl]').forEach((cv) => { const i = +cv.dataset.sl; cv.getContext('2d').drawImage(frames[i], 0, 0, 90, 160); });
+      $$('[data-on]').forEach((el) => el.addEventListener('change', () => { p.slides[+el.dataset.on].on = el.checked; persist(); drawList(); refreshLen(); refreshScript(); show(0); }));
+      $$('[data-dur]').forEach((el) => el.addEventListener('input', () => { p.slides[+el.dataset.dur].dur = Math.max(1, Math.min(15, Number(el.value) || 3)); persist(); refreshLen(); }));
+      $$('[data-nar]').forEach((el) => el.addEventListener('input', () => { p.slides[+el.dataset.nar].narration = el.value; persist(); refreshScript(); }));
+    }
+    let capKey = 'instagram';
+    function drawCaption() {
+      const c = p.captions[capKey];
+      if (capKey === 'instagram') {
+        $('#cap-body').innerHTML = `<div class="field"><label>캡션</label><textarea id="cp-text" rows="9">${esc(c.text)}</textarea></div><div class="field"><label>해시태그</label><input type="text" id="cp-tags" value="${esc(c.hashtags.map((t) => `#${t}`).join(' '))}"></div>`;
+      } else {
+        $('#cap-body').innerHTML = `<div class="field"><label>제목</label><input type="text" id="cp-title" value="${esc(c.title)}"></div><div class="field"><label>설명</label><textarea id="cp-desc" rows="8">${esc(c.description)}</textarea></div><div class="field"><label>태그</label><input type="text" id="cp-tags" value="${esc(c.tags.map((t) => `#${t}`).join(' '))}"></div>`;
+      }
+      $('#cap-body').insertAdjacentHTML('beforeend', '<button class="btn sm" id="cp-copy">복사하기</button>');
+      const tagsOf = (v) => v.split(/[\s,]+/).map((t) => t.replace(/^#+/, '')).filter(Boolean);
+      $('#cp-text')?.addEventListener('input', (e) => { c.text = e.target.value; persist(); });
+      $('#cp-title')?.addEventListener('input', (e) => { c.title = e.target.value; persist(); });
+      $('#cp-desc')?.addEventListener('input', (e) => { c.description = e.target.value; persist(); });
+      $('#cp-tags').addEventListener('input', (e) => { if (capKey === 'instagram') c.hashtags = tagsOf(e.target.value); else c.tags = tagsOf(e.target.value); persist(); });
+      $('#cp-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(captionText(p, capKey)); toast('복사했어요.'); } catch { toast('복사 권한이 없어요. 직접 선택해 복사해 주세요.', true); } });
+    }
+    $$('#cap-tabs button').forEach((b) => b.addEventListener('click', () => { capKey = b.dataset.cap; $$('#cap-tabs button').forEach((x) => x.classList.toggle('on', x === b)); drawCaption(); }));
+    $('#sh-title').addEventListener('input', (e) => { p.title = e.target.value; persist(); });
+    $('#sl-fade').addEventListener('change', (e) => { p.fade = e.target.checked; persist(); });
+    $('#sl-zoom').addEventListener('change', (e) => { p.zoom = e.target.checked; persist(); });
+    $('#sl-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#sl-script').value); toast('대본을 복사했어요.'); } catch { $('#sl-script').select(); toast('복사 권한이 없어요. 선택된 대본을 직접 복사해 주세요.', true); } });
+    $('#pv-safe').addEventListener('change', () => show(0));
+    $('#pv-play').addEventListener('click', async () => { pl?.stop(); pl = player(); $('#pv-play').disabled = true; await pl.play({ safe: $('#pv-safe').value || false, onTime: (t) => { $('#pv-time').textContent = fmt(t); } }); $('#pv-play').disabled = false; });
+    $('#pv-stop').addEventListener('click', () => { pl?.stop(); $('#pv-play').disabled = false; });
+    const bar = $('#ex-bar');
+    const setBar = (r) => { bar.style.display = 'block'; bar.firstElementChild.style.width = `${Math.round(r * 100)}%`; };
+    const lock = (on) => ['#ex-video', '#ex-zip', '#pv-play'].forEach((sel) => { $(sel).disabled = on; });
+    const makeVideo = async () => { pl?.stop(); pl = player(); return pl.record({ onProgress: setBar }); };
+    const thumbBlob = () => new Promise((r) => { const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').drawImage(frames[activeIdx()[0] ?? 0], 0, 0, W, H); cv.toBlob(r, 'image/png'); });
+    $('#ex-thumb').addEventListener('click', async () => download(await thumbBlob(), `${safeName(p.title)}_thumbnail.png`));
+    $('#ex-video').addEventListener('click', async () => {
+      lock(true);
+      try { toast('녹화를 시작했어요. 끝날 때까지 이 탭을 그대로 두세요.'); const { blob, ext } = await makeVideo(); download(blob, `${safeName(p.title)}_short.${ext}`); toast(ext === 'mp4' ? '숏폼 영상(MP4)을 내려받았어요.' : '숏폼 영상을 WEBM으로 저장했어요. 업로드 전 MP4 변환이 필요할 수 있어요.'); } catch (e) { toast(e.message, true); }
+      lock(false); setTimeout(() => { bar.style.display = 'none'; }, 1500);
+    });
+    $('#ex-zip').addEventListener('click', async () => {
+      if (!window.JSZip) { toast('ZIP 라이브러리를 불러오지 못했어요. 새로고침해 주세요.', true); return; }
+      lock(true);
+      try {
+        const zip = new window.JSZip();
+        zip.file('captions.txt', ['[인스타 릴스]', captionText(p, 'instagram'), '', '[유튜브 쇼츠]', captionText(p, 'youtube'), '', '[네이버 클립]', captionText(p, 'naver')].join('\n'));
+        zip.file('script.txt', `﻿${$('#sl-script').value}\n`);
+        zip.file('thumbnail.png', await thumbBlob());
+        const fo = zip.folder('slides');
+        for (const i of activeIdx()) fo.file(`${String(i + 1).padStart(2, '0')}.png`, await new Promise((r) => frames[i].toBlob(r, 'image/png')));
+        toast('영상을 녹화하는 중이에요. 이 탭을 그대로 두세요.');
+        const { blob, ext } = await makeVideo();
+        zip.file(`short.${ext}`, blob);
+        download(await zip.generateAsync({ type: 'blob' }), `${safeName(p.title)}_upload.zip`);
+        toast('업로드 묶음을 내려받았어요.');
+      } catch (e) { toast(e.message, true); }
+      lock(false); setTimeout(() => { bar.style.display = 'none'; }, 1500);
+    });
+    refreshLen(); refreshScript(); drawList(); drawCaption(); show(0);
+  }
+
   async function editorView(id) {
     const p = getShort(id);
     if (!p) { view.innerHTML = '<div class="empty">숏폼을 찾을 수 없어요. <a href="#/shorts">목록으로</a></div>'; return; }
     ensureProfileFor?.(p);
+    if (p.kind === 'slides') return slidesEditor(p);
     const env = await renderEnv();
     const s = getSettings();
     const charImg = env.charPoses?.wave || env.charImg;

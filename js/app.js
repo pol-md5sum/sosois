@@ -2,15 +2,17 @@ import {
   PROVIDERS, CATEGORIES, POSES, LAYOUTS, DEFAULT_POSE, SYSTEM_PROMPT, CONTENT_SCHEMA, JUDGE_CRITERIA,
   buildContentPrompt, buildJudgePrompt, callModel, extractJson, normalizeContent, templateContent, heuristicScore,
   introContent, generateImage, buildImagePrompt, buildCoverPrompt, IMAGE_PROVIDERS, TOPIC_KEYS, PRACTICAL_KINDS, personaSystem, renameCharacter, introContentHappy, withArticleLink, articleInfo, RECIPES, templateRecipe, buildVisitPrompt, templateVisit,
+  finalizeGuide, reviewGuide, templateGuide, sourceKind, SOURCE_KIND_LABEL, isOfficialSource, isStale, GUIDE_DISCLAIMER,
 } from './ai.js';
+import { AGE_BANDS, GROUPS, ageLabel, groupLabel, loadTopics, addTopic, removeTopic, markTopicDone, weeklyPick } from './parenting.js';
 import {
   getSettings, saveSettings, getKeys, saveKeys, availableProviders, STATUSES,
   listContents, getContent, saveContent, deleteContent, importContents, newId, putPose, deletePose, getAllPoses,
-  putBg, deleteBg, getBgsFor, listProfiles, getActiveProfile, setActiveProfile, saveProfile, deleteProfile, CHARACTERS, charOf, charNameOf, poseKey, mineOnly, profileOfItem,
+  putBg, deleteBg, getBgsFor, saveShort, listProfiles, getActiveProfile, setActiveProfile, saveProfile, deleteProfile, CHARACTERS, charOf, charNameOf, poseKey, mineOnly, profileOfItem,
 } from './store.js';
 import { renderCard, canvasToBlob, loadImage, autoLayout, FORMATS, DEFAULT_FORMAT, DECK_THEMES, deckTheme, deckThemeLabel, TOON_FONTS, TOON_FONT_LABELS, BUBBLE_FONTS, BUBBLE_FONT_LABELS } from './render.js';
 
-import { createShortsViews, FONTS as SHORTS_FONTS } from './shorts.js';
+import { createShortsViews, FONTS as SHORTS_FONTS, buildSlideProject } from './shorts.js';
 
 // 계정별 브랜드: 주제·이름·이모지·슬로건 (해피해피는 육아·아기·생활용품·생활템만)
 const BR = () => {
@@ -163,6 +165,8 @@ function drawProfileSwitch() {
   const fav = document.querySelector('link[rel="icon"]');
   if (fav && charOf(prof).base) fav.href = charOf(prof).base;
   document.title = `${prof.id === 'moa' ? 'MOA' : b.name} Content Studio`;
+  const navCare = $('#nav-care');
+  if (navCare) navCare.hidden = !b.happy;
   const intro = $('#nav a[data-route="intro"]');
   if (intro) intro.textContent = `${b.emoji} 첫 게시물 만들기`;
 }
@@ -268,10 +272,10 @@ function getDraftNews() { try { return JSON.parse(sessionStorage.getItem('moa.dr
 // ---------- 라우터 ----------
 let SHORTS = null;
 const shortsRoute = (arg) => {
-  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit });
+  if (!SHORTS) SHORTS = createShortsViews({ $, $$, esc, toast, modal, closeModal, download, view, renderEnv, safeName, ensureProfileFor, charSrc, createVisit, loadBgs });
   return arg ? SHORTS.editorView(arg) : SHORTS.listView();
 };
-const routes = { dashboard, shorts: shortsRoute, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
+const routes = { care: careView, dashboard, shorts: shortsRoute, intro: () => createIntro(), topics: topicsView, news: newsView, trends: trendsView, create: createView, editor: editorView, contents: contentsView, settings: settingsView };
 async function route() {
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   const r = routes[name] ? name : 'dashboard';
@@ -670,7 +674,7 @@ async function generateContent(news, provider, opts = {}) {
   const recipe = opts.recipe && opts.recipe !== 'auto' ? opts.recipe : (s.focus ? (CATEGORIES[news.category]?.recipe || 'news') : 'news');
   news = { ...news, recipe };
   if (provider === 'template') {
-    body = recipe !== 'news' ? templateRecipe(news, recipe, { handle: s.handle }) : templateContent(news, { handle: s.handle });
+    body = news.guide ? templateGuide(news, { handle: s.handle }) : recipe !== 'news' ? templateRecipe(news, recipe, { handle: s.handle }) : templateContent(news, { handle: s.handle });
   } else {
     const text = await callModel(provider, {
       apiKey: getKeys()[provider], model: s.models[provider], system: personaSystem(SYSTEM_PROMPT, { charName: s.charName, charDesc: s.charDesc || charOf(getActiveProfile()).desc, brand: s.brand, focus: s.focus }),
@@ -687,8 +691,12 @@ async function generateContent(news, provider, opts = {}) {
   // 예전 계정 표기(@moa)가 남아 있으면 현재 계정으로 바꾼다
   if (s.handle) body.caption = (body.caption || '').replace(/@moa(?![\w.])/g, s.handle);
   if (s.focus) body.caption = (body.caption || '').replace('매일 쉬운 뉴스 받기', '육아·살림 꿀정보 받기');
-  // 원문 기사(언론사·제목·날짜·링크)를 캡션 끝에
-  body.caption = withArticleLink(body.caption, { ...news, title: news.title || body.title }, body.sources || []);
+  // 원문 기사(언론사·제목·날짜·링크)를 캡션 끝에 (육아 정보 주제는 기사가 아니라 공식 자료가 근거라 따로 처리)
+  if (news.guide) finalizeGuide(body, news.guide);
+  else {
+    body.caption = withArticleLink(body.caption, { ...news, title: news.title || body.title }, body.sources || []);
+    if (s.focus && body.category === 'PARENTING' && !String(body.caption).includes('아기마다 달라요')) body.caption += `\n\n※ ${GUIDE_DISCLAIMER}`;
+  }
   if (opts.fromUrl || opts.images?.length) {
     news.title = news.title || body.title;
     news.category = body.category;
@@ -889,6 +897,7 @@ async function editorView(id) {
     <span class="chip">${esc(PROVIDERS[c.model]?.label || '템플릿')} · ${esc(c.modelName || '')}</span>
     <span class="spacer"></span>
     <button class="btn" id="e-png">⬇️ 이 카드 PNG</button>
+    <button class="btn" id="e-short" title="이 카드뉴스를 9:16 영상(숏폼)으로 만들어요">🎬 AI 숏폼 만들기</button>
     <button class="btn primary" id="e-zip">📦 전체 ZIP</button>
   </div>
   ${c.factNotes?.length ? `<div class="notice"><b>확인이 필요한 내용</b><ul style="margin:6px 0 0;padding-left:18px">${c.factNotes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
@@ -899,6 +908,7 @@ async function editorView(id) {
     </div>
     <aside class="panel edit-panel" id="panel"></aside>
   </div>
+  ${guidePanelHtml(c)}
   <section class="panel" style="margin-top:22px">
     <div class="row"><h3 style="margin:0">📝 인스타그램 캡션</h3><span class="spacer"></span><button class="btn sm" id="cap-copy">캡션 + 해시태그 복사</button></div>
     <div class="field" style="margin-top:10px"><textarea id="cap" rows="9">${esc(c.caption)}</textarea></div>
@@ -1060,7 +1070,21 @@ async function editorView(id) {
   $('#prev').addEventListener('click', () => select(cur - 1));
   $('#next').addEventListener('click', () => select(cur + 1));
   $('#e-title').addEventListener('input', (e) => { c.title = e.target.value; persist(); });
-  $('#e-status').addEventListener('change', (e) => { c.status = e.target.value; persist(); toast(`상태: ${STATUSES[c.status]}`); });
+  $('#e-status').addEventListener('change', (e) => {
+    if (c.guide && ['scheduled', 'posted'].includes(e.target.value) && !reviewGuide(c).ready && !confirm('육아 정보 점검이 끝나지 않았어요(출처·표현·검수 체크). 그래도 이 상태로 바꿀까요?')) { e.target.value = c.status; return; }
+    c.status = e.target.value; persist(); toast(`상태: ${STATUSES[c.status]}`);
+  });
+  $('#e-short').addEventListener('click', () => { clearTimeout(saveTimer); saveContent(c); createSlideShort(c); });
+  ['age', 'nums', 'src'].forEach((k) => $(`#rv-${k}`)?.addEventListener('change', (e) => {
+    c.review = { ...(c.review || {}), [{ age: 'age', nums: 'nums', src: 'sources' }[k]]: e.target.checked };
+    persist();
+    const rv = reviewGuide(c); const chip = $('#guide-chip');
+    chip.textContent = rv.ready ? '✅ 발행 준비 완료' : '⚠️ 발행 전 점검 필요'; chip.classList.toggle('warn', !rv.ready);
+  }));
+  $('#guide-redo')?.addEventListener('click', () => {
+    const t = loadTopics(getActiveProfile().id).find((x) => x.id === c.guide.topicId) || { id: '', title: c.guide.title, question: '', age: '', group: '' };
+    makeCare(t, { format: c.guide.format || 'info_qa' });
+  });
   $('#e-theme').addEventListener('change', async (e) => {
     c.theme = e.target.value; persist(); await drawAll(); await select(cur);
     if (c.theme === 'magazine' && !env.bgs[`${c.id}:0`]) toast('매거진 첫 장은 1장 편집 패널의 "AI 실사 커버 만들기"로 사진 배경을 넣을 수 있어요.');
@@ -1168,6 +1192,160 @@ async function contentsView() {
     try { const n = importContents(JSON.parse(await f.text())); toast(`${n}개를 가져왔어요.`); draw(); } catch { toast('백업 파일을 읽지 못했어요.', true); }
   });
   draw();
+}
+
+
+// ---------- 👶 오늘의 육아정보 (해피해피) ----------
+const careFormats = () => Object.entries(RECIPES).filter(([, v]) => v.info);
+const careFmtSelect = (id, cur) => `<select id="${id}" class="care-fmt" title="카드뉴스 형식">${careFormats().map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`;
+let CARE_TAB = 'guide';
+let CARE_AGE = '';
+
+function createSlideShort(c) {
+  const p = buildSlideProject(c, getSettings());
+  saveShort(p);
+  location.hash = `#/shorts/${p.id}`;
+}
+
+// 주제(또는 기사) → 카드뉴스 → (선택) AI 숏폼
+async function makeCare(topic, { format, withShort = false } = {}) {
+  const s = getSettings();
+  const keys = getKeys();
+  const provider = keys[s.provider] ? s.provider : (availableProviders()[0] || 'template');
+  if (provider === 'template' && !confirm('AI 키가 없어요. 공식 자료를 찾아 쓰는 일은 AI가 해야 해서, 지금은 구조만 있는 빈 틀로 만들어요. 내용은 직접 채워야 해요. 계속할까요?')) return null;
+  const prof = getActiveProfile();
+  const news = {
+    id: `g${Date.now()}`, category: 'PARENTING', title: topic.title, summary: topic.question || '', url: '', source: '', sources: [],
+    guide: { topicId: topic.id, title: topic.title, age: ageLabel(topic.age), group: groupLabel(topic.group), format },
+  };
+  const out = await runGenerate([news], provider, { webSearch: true, recipe: format });
+  if (!out[0]) return null;
+  if (topic.id) markTopicDone(prof.id, topic.id, out[0].id, out[0].checkedAt || new Date().toISOString());
+  if (withShort) createSlideShort(out[0]); else location.hash = `#/editor/${out[0].id}`;
+  return out[0];
+}
+
+async function careView() {
+  const b = BR();
+  if (!b.happy) { location.replace('#/dashboard'); return; }
+  const prof = getActiveProfile();
+  const data = scopeNews(await loadNews());
+  const keys = getKeys();
+  const hasAI = availableProviders().length > 0;
+  view.innerHTML = `
+  <h1>👶 오늘의 육아정보</h1>
+  <p class="sub">공식 자료를 근거로 육아 정보를 카드뉴스와 AI 숏폼으로 만들어요. 인스타·유튜브·네이버 캡션까지 한 번에 나와요.</p>
+  <div class="notice small">모든 육아 정보 콘텐츠에는 <b>출처·확인일·면책 문구</b>가 자동으로 들어가고, 발행 전에 출처·표현·검수 점검을 거쳐요. 이 앱은 의학적 조언을 하지 않으며, 아기 건강 문제는 소아청소년과 상담이 우선이에요.${hasAI ? '' : ' <b>AI 키가 없으면 내용 없는 빈 틀만 만들어져요</b>(설정에서 키를 넣어 주세요).'}</div>
+  <div class="seg" id="care-tabs" style="margin:14px 0">
+    <button data-tab="news" class="${CARE_TAB === 'news' ? 'on' : ''}">📰 오늘의 소식</button>
+    <button data-tab="guide" class="${CARE_TAB === 'guide' ? 'on' : ''}">📚 월령별 가이드</button>
+    <button data-tab="mine" class="${CARE_TAB === 'mine' ? 'on' : ''}">🗂️ 내 주제함</button>
+  </div>
+  <div id="care-ages" class="seg" style="margin-bottom:14px;flex-wrap:wrap"></div>
+  <div id="care-body"></div>`;
+
+  const topicCard = (t) => {
+    const done = t.status === 'done';
+    const stale = done && isStale(t.checkedAt);
+    return `<article class="panel care-topic" data-topic="${esc(t.id)}">
+      <div class="row small"><span class="chip">${esc(ageLabel(t.age))}</span><span class="chip">${esc(groupLabel(t.group))}</span>${done ? `<span class="chip" style="background:#e5f4e3">✅ 제작함</span>` : ''}${stale ? '<span class="chip warn">🔄 재확인 필요</span>' : ''}</div>
+      <h3 style="margin:8px 0 4px">${esc(t.title)}</h3>
+      <p class="small muted" style="margin:0 0 10px">${esc(t.question || '')}</p>
+      <div class="row">${careFmtSelect(`fmt-${t.id}`, t.format)}</div>
+      <div class="row" style="margin-top:8px"><button class="btn primary sm" data-cn="${esc(t.id)}">📰 카드뉴스</button><button class="btn sm" data-cs="${esc(t.id)}">🎬 카드뉴스 + AI 숏폼</button>${done && t.contentIds?.[0] && getContent(t.contentIds[0]) ? `<a class="btn sm" href="#/editor/${esc(t.contentIds[0])}">최근 결과 열기</a>` : ''}</div>
+    </article>`;
+  };
+  const bind = () => {
+    const find = (id) => loadTopics(prof.id).find((t) => t.id === id);
+    $$('[data-cn],[data-cs]', $('#care-body')).forEach((btn) => btn.addEventListener('click', () => {
+      const id = btn.dataset.cn || btn.dataset.cs;
+      const t = find(id); if (!t) return;
+      makeCare(t, { format: $(`#fmt-${id}`).value, withShort: !!btn.dataset.cs });
+    }));
+    $$('[data-news-cn],[data-news-cs]', $('#care-body')).forEach((btn) => btn.addEventListener('click', async () => {
+      const n = findNews(btn.dataset.newsCn || btn.dataset.newsCs);
+      if (!n) return;
+      const s = getSettings();
+      const provider = keys[s.provider] ? s.provider : (availableProviders()[0] || 'template');
+      const out = await runGenerate([n], provider, { webSearch: s.webSearch, recipe: 'guide' });
+      if (!out[0]) return;
+      if (btn.dataset.newsCs) createSlideShort(out[0]); else location.hash = `#/editor/${out[0].id}`;
+    }));
+  };
+  const draw = () => {
+    $$('#care-tabs button').forEach((x) => x.classList.toggle('on', x.dataset.tab === CARE_TAB));
+    const ages = $('#care-ages');
+    ages.style.display = CARE_TAB === 'guide' ? '' : 'none';
+    ages.innerHTML = `<button data-age="" class="${CARE_AGE === '' ? 'on' : ''}">전체</button>${AGE_BANDS.map((a) => `<button data-age="${a.k}" class="${CARE_AGE === a.k ? 'on' : ''}">${esc(a.label)}</button>`).join('')}`;
+    $$('#care-ages button').forEach((x) => x.addEventListener('click', () => { CARE_AGE = x.dataset.age; draw(); }));
+    const body = $('#care-body');
+    const topics = loadTopics(prof.id);
+    if (CARE_TAB === 'news') {
+      const now = Date.now();
+      const items = data.items.filter((n) => ['PARENTING', 'BABY'].includes(n.category))
+        .map((n) => ({ n, official: (n.outlets || []).some((o) => isOfficialSource({ name: o })), hours: (now - new Date(n.publishedAt).getTime()) / 36e5 }))
+        .sort((a, c) => (c.official - a.official) || (c.n.moaScore - a.n.moaScore));
+      body.innerHTML = `<p class="small muted">최근 24시간 육아·아기 뉴스를 모았어요. 🏛️ 공식은 정부·공공기관 발표가 포함된 기사예요. 의학·영양 정보는 기사만 믿지 말고 공식 자료를 확인하세요.</p>` + (items.length ? `<div class="grid">${items.slice(0, 24).map(({ n, official, hours }) => `
+        <article class="panel news"><div class="row small">${official ? '<span class="chip" style="background:#e5f0fb">🏛️ 공식</span>' : ''}${hours < 24 ? '<span class="chip pink">NEW</span>' : hours < 168 ? '<span class="chip">이번 주</span>' : ''}<span class="spacer"></span><span class="small muted">${esc(fmtDate(n.publishedAt))}</span></div>
+          <h3><a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a></h3>
+          <div class="small muted">출처: ${esc((n.outlets || [n.source]).filter(Boolean).slice(0, 3).join(', '))}</div>
+          <div class="foot row"><button class="btn primary sm" data-news-cn="${esc(n.id)}">📰 카드뉴스</button><button class="btn sm" data-news-cs="${esc(n.id)}">🎬 + AI 숏폼</button></div></article>`).join('')}</div>` : emptyNews(data));
+    } else if (CARE_TAB === 'guide') {
+      const week = CARE_AGE ? [] : weeklyPick(topics, new Date(), 3);
+      const list = topics.filter((t) => !CARE_AGE || t.age === CARE_AGE);
+      body.innerHTML = `${week.length ? `<h2 style="margin-top:0">⭐ 이번 주 추천</h2><div class="grid">${week.map(topicCard).join('')}</div>` : ''}
+        <h2>${CARE_AGE ? esc(ageLabel(CARE_AGE)) : '전체 주제'} (${list.length})</h2>
+        ${list.length ? `<div class="grid">${list.map(topicCard).join('')}</div>` : '<div class="panel empty"><p>이 월령 주제가 아직 없어요. "내 주제함"에서 추가해 보세요.</p></div>'}`;
+    } else {
+      const made = mineOnly(listContents()).filter((c) => c.guide).sort((a, c) => String(c.createdAt).localeCompare(String(a.createdAt)));
+      body.innerHTML = `<section class="panel"><h3>➕ 주제 추가</h3>
+          <div class="two"><div class="field"><label for="ct-title">주제(제목)</label><input type="text" id="ct-title" placeholder="예: 아기 낮잠, 하루에 몇 번 자나요?"></div>
+          <div class="field"><label for="ct-q">궁금한 점 (선택)</label><input type="text" id="ct-q" placeholder="AI가 이 질문에 답하는 방향으로 찾아요"></div></div>
+          <div class="row"><select id="ct-age">${AGE_BANDS.map((a) => `<option value="${a.k}" ${a.k === '4-6' ? 'selected' : ''}>${esc(a.label)}</option>`).join('')}</select>
+          <select id="ct-group">${Object.entries(GROUPS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select>${careFmtSelect('ct-fmt', 'info_qa')}
+          <button class="btn primary" id="ct-add">추가</button></div></section>
+        <h2>만든 육아 정보 (${made.length})</h2>
+        ${made.length ? `<div class="table-wrap"><table><tr><th>제목</th><th>월령·분야</th><th>확인일</th><th>점검</th><th></th></tr>${made.map((c) => {
+          const rv = reviewGuide(c);
+          return `<tr><td><a href="#/editor/${esc(c.id)}"><b>${esc(c.title)}</b></a></td><td class="small">${esc(c.guide.age || '')} · ${esc(c.guide.group || '')}</td>
+            <td class="small">${esc(new Date(c.checkedAt).toLocaleDateString('ko-KR'))}${isStale(c.checkedAt) ? ' <span class="chip warn">재확인</span>' : ''}</td>
+            <td class="small">${rv.ready ? '✅ 발행 준비' : `⚠️ 점검 필요 (${rv.warnings.length + (rv.done ? 0 : 1)})`}</td>
+            <td><a class="btn sm" href="#/editor/${esc(c.id)}">열기</a></td></tr>`;
+        }).join('')}</table></div>` : '<div class="panel empty"><p>아직 만든 육아 정보가 없어요.</p></div>'}
+        <h2>내 주제 목록</h2>
+        <div class="table-wrap"><table><tr><th>주제</th><th>월령</th><th>상태</th><th></th></tr>${topics.map((t) => `<tr><td>${esc(t.title)}</td><td class="small">${esc(ageLabel(t.age))}</td><td class="small">${t.status === 'done' ? '✅ 제작함' : '대기'}</td><td><button class="btn sm danger" data-rm-topic="${esc(t.id)}">삭제</button></td></tr>`).join('')}</table></div>`;
+      $('#ct-add').addEventListener('click', () => {
+        const title = $('#ct-title').value.trim();
+        if (!title) { toast('주제를 입력해 주세요.', true); return; }
+        addTopic(prof.id, { title, question: $('#ct-q').value.trim(), age: $('#ct-age').value, group: $('#ct-group').value, format: $('#ct-fmt').value });
+        toast('주제를 추가했어요.'); draw();
+      });
+      $$('[data-rm-topic]').forEach((x) => x.addEventListener('click', () => { if (confirm('이 주제를 삭제할까요? (만든 콘텐츠는 남아요)')) { removeTopic(prof.id, x.dataset.rmTopic); draw(); } }));
+    }
+    bind();
+  };
+  $$('#care-tabs button').forEach((x) => x.addEventListener('click', () => { CARE_TAB = x.dataset.tab; draw(); }));
+  draw();
+}
+
+// 육아 정보 점검 패널 (편집기): 출처·표현·검수 체크
+function guidePanelHtml(c) {
+  if (!c.guide) return '';
+  const rv = reviewGuide(c);
+  const r = c.review || {};
+  return `<section class="panel guide-panel" id="guide-panel" style="margin-top:22px">
+    <div class="row"><h3 style="margin:0">👶 육아 정보 점검</h3><span class="spacer"></span>
+      <span class="chip ${rv.ready ? '' : 'warn'}" id="guide-chip">${rv.ready ? '✅ 발행 준비 완료' : '⚠️ 발행 전 점검 필요'}</span></div>
+    <div class="row small" style="margin:8px 0"><span class="chip">${esc(c.guide.age || '월령 미정')}</span><span class="chip">${esc(c.guide.group || '')}</span>
+      <span>확인일 ${esc(new Date(c.checkedAt).toLocaleDateString('ko-KR'))}</span>${isStale(c.checkedAt) ? '<span class="chip warn">🔄 재확인 필요</span>' : ''}</div>
+    <div class="small"><b>근거 출처</b>${(c.sources || []).length ? `<ul class="plain">${c.sources.map((x) => `<li>${esc(SOURCE_KIND_LABEL[sourceKind(x)])} · ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.name || x.url)}</a>` : esc(x.name)}</li>`).join('')}</ul>` : ' <span class="muted">없음</span>'}</div>
+    ${rv.warnings.length ? `<div class="notice small"><b>확인할 점</b><ul style="margin:6px 0 0;padding-left:18px">${rv.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+    <div class="small" style="margin-top:8px"><b>검수 체크</b> (직접 확인하고 체크해야 "발행 준비"가 돼요)
+      <label class="check-line"><input type="checkbox" id="rv-age" ${r.age ? 'checked' : ''}><span>월령·기간 표현을 출처와 대조했어요</span></label>
+      <label class="check-line"><input type="checkbox" id="rv-nums" ${r.nums ? 'checked' : ''}><span>숫자(양·횟수·일정)를 출처와 대조했어요</span></label>
+      <label class="check-line"><input type="checkbox" id="rv-src" ${r.sources ? 'checked' : ''}><span>출처 링크를 열어 내용을 확인했어요</span></label></div>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="guide-redo">🔄 최신 자료로 다시 만들기</button></div>
+  </section>`;
 }
 
 // ---------- 설정 ----------

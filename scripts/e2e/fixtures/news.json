@@ -1,0 +1,399 @@
+{
+ "generatedAt": "2026-10-09T13:04:08.415924+00:00",
+ "curatedBy": null,
+ "count": 8,
+ "errors": [],
+ "items": [
+  {
+   "id": "x1",
+   "category": "NEWS",
+   "title": "정부, 내년 예산안 발표",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/1",
+   "publishedAt": "2026-10-09T12:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "정부, 내년 예산안 발표",
+     "url": "https://example.com/1"
+    },
+    {
+     "name": "KBS",
+     "title": "정부, 내년 예산안 발표 관련",
+     "url": "https://example.com/1b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 40,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 70,
+   "buzzScore": 40,
+   "reason": ""
+  },
+  {
+   "id": "x2",
+   "category": "MONEY",
+   "title": "기준금리 동결 결정",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/2",
+   "publishedAt": "2026-10-09T11:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "기준금리 동결 결정",
+     "url": "https://example.com/2"
+    },
+    {
+     "name": "KBS",
+     "title": "기준금리 동결 결정 관련",
+     "url": "https://example.com/2b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 40,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 70,
+   "buzzScore": 40,
+   "reason": ""
+  },
+  {
+   "id": "x3",
+   "category": "FOOD",
+   "title": "편의점 신상 디저트 열풍",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/3",
+   "publishedAt": "2026-10-09T10:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "편의점 신상 디저트 열풍",
+     "url": "https://example.com/3"
+    },
+    {
+     "name": "KBS",
+     "title": "편의점 신상 디저트 열풍 관련",
+     "url": "https://example.com/3b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 40,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 70,
+   "buzzScore": 40,
+   "reason": ""
+  },
+  {
+   "id": "x4",
+   "category": "PARENTING",
+   "title": "부모급여 내년 월 100만원으로…신청 방법 총정리",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/4",
+   "publishedAt": "2026-10-09T09:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "질병관리청",
+     "title": "부모급여 내년 월 100만원으로…신청 방법 총정리",
+     "url": "https://example.com/4"
+    },
+    {
+     "name": "KBS",
+     "title": "부모급여 내년 월 100만원으로…신청 방법 총정리 관련",
+     "url": "https://example.com/4b"
+    }
+   ],
+   "outlets": [
+    "질병관리청",
+    "연합뉴스"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 60,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 82,
+   "buzzScore": 60,
+   "reason": "",
+   "channel": "happy"
+  },
+  {
+   "id": "x5",
+   "category": "BABY",
+   "title": "유아용 젖병 일부 제품 리콜…대상 확인하세요",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/5",
+   "publishedAt": "2026-10-09T08:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "유아용 젖병 일부 제품 리콜…대상 확인하세요",
+     "url": "https://example.com/5"
+    },
+    {
+     "name": "KBS",
+     "title": "유아용 젖병 일부 제품 리콜…대상 확인하세요 관련",
+     "url": "https://example.com/5b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 70,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 78,
+   "buzzScore": 70,
+   "reason": "",
+   "channel": "happy"
+  },
+  {
+   "id": "x6",
+   "category": "LIVING",
+   "title": "주방 세제 섞어 쓰면 위험…올바른 사용법",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/6",
+   "publishedAt": "2026-10-09T07:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "주방 세제 섞어 쓰면 위험…올바른 사용법",
+     "url": "https://example.com/6"
+    },
+    {
+     "name": "KBS",
+     "title": "주방 세제 섞어 쓰면 위험…올바른 사용법 관련",
+     "url": "https://example.com/6b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 30,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 66,
+   "buzzScore": 30,
+   "reason": "",
+   "channel": "happy"
+  },
+  {
+   "id": "x7",
+   "category": "ITEM",
+   "title": "다이소 수납 꿀템 품절 행렬…5천원 정리함",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/7",
+   "publishedAt": "2026-10-09T06:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "다이소 수납 꿀템 품절 행렬…5천원 정리함",
+     "url": "https://example.com/7"
+    },
+    {
+     "name": "KBS",
+     "title": "다이소 수납 꿀템 품절 행렬…5천원 정리함 관련",
+     "url": "https://example.com/7b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 80,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 74,
+   "buzzScore": 80,
+   "reason": "",
+   "channel": "happy"
+  },
+  {
+   "id": "x8",
+   "category": "BABY",
+   "title": "8개월 아기 이유식, 단호박 퓨레 만드는 법",
+   "summary": "관련 기사 요약",
+   "source": "연합뉴스",
+   "url": "https://example.com/8",
+   "publishedAt": "2026-10-09T05:04:08.415924+00:00",
+   "sources": [
+    {
+     "name": "연합뉴스",
+     "title": "8개월 아기 이유식, 단호박 퓨레 만드는 법",
+     "url": "https://example.com/8"
+    },
+    {
+     "name": "KBS",
+     "title": "8개월 아기 이유식, 단호박 퓨레 만드는 법 관련",
+     "url": "https://example.com/8b"
+    }
+   ],
+   "outlets": [
+    "연합뉴스",
+    "KBS"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 35,
+    "sns": 50,
+    "target": 60,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 70,
+   "buzzScore": 35,
+   "reason": "",
+   "channel": "happy"
+  },
+  {
+   "id": "o11",
+   "channel": "happy",
+   "category": "OUTING",
+   "title": "이번 주말 아이와 가볼 만한 실내 키즈카페 4곳",
+   "summary": "주말에 아이와 가기 좋은 곳 모음",
+   "source": "뉴스1",
+   "url": "https://www.news1.kr/articles/11",
+   "publishedAt": "2026-10-09T02:48:32.793297+00:00",
+   "sources": [
+    {
+     "name": "뉴스1",
+     "title": "이번 주말 아이와 가볼 만한 실내 키즈카페 4곳",
+     "url": "https://www.news1.kr/articles/11"
+    }
+   ],
+   "outlets": [
+    "뉴스1"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 50,
+    "sns": 50,
+    "target": 70,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 75,
+   "buzzScore": 50,
+   "reason": ""
+  },
+  {
+   "id": "o12",
+   "channel": "happy",
+   "category": "OUTING",
+   "title": "어린이 테마파크 가을 축제 개막…유아 무료",
+   "summary": "주말에 아이와 가기 좋은 곳 모음",
+   "source": "뉴스1",
+   "url": "https://www.news1.kr/articles/12",
+   "publishedAt": "2026-10-09T01:48:32.793297+00:00",
+   "sources": [
+    {
+     "name": "뉴스1",
+     "title": "어린이 테마파크 가을 축제 개막…유아 무료",
+     "url": "https://www.news1.kr/articles/12"
+    }
+   ],
+   "outlets": [
+    "뉴스1"
+   ],
+   "scores": {
+    "recency": 90,
+    "buzz": 50,
+    "sns": 50,
+    "target": 70,
+    "life": 60,
+    "ease": 70,
+    "card": 60
+   },
+   "moaScore": 75,
+   "buzzScore": 50,
+   "reason": ""
+  }
+ ],
+ "trends": [
+  {
+   "keyword": "야구 결과",
+   "traffic": "5만+",
+   "publishedAt": "2026-10-09T13:04:08.415924+00:00",
+   "news": [
+    {
+     "title": "야구 결과 정리",
+     "url": "https://e/1",
+     "name": "스포츠"
+    }
+   ]
+  },
+  {
+   "keyword": "육아휴직 급여",
+   "traffic": "2만+",
+   "publishedAt": "2026-10-09T13:04:08.415924+00:00",
+   "news": [
+    {
+     "title": "육아휴직 급여 인상",
+     "url": "https://e/2",
+     "name": "뉴스1"
+    }
+   ]
+  }
+ ]
+}
