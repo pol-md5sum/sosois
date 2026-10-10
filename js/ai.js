@@ -114,9 +114,9 @@ export const TOPIC_KEYS = () => Object.keys(CATEGORIES).filter((k) => !CATEGORIE
 
 export const CARD_TYPES = ['HOOK', 'WHAT', 'WHY', 'SO WHAT', "MOA'S PICK", 'LIFE/CHECK', 'CTA'];
 // 형식별 카드에서 쓰는 추가 유형: 추천템(ITEM)·장소(PLACE)·단계(STEP)
-export const EXTRA_TYPES = ['ITEM', 'PLACE', 'STEP'];
+export const EXTRA_TYPES = ['ITEM', 'PLACE', 'STEP', 'POINT'];
 export const ALL_TYPES = [...CARD_TYPES, ...EXTRA_TYPES];
-export const TYPE_LABEL = { ITEM: 'PICK', PLACE: 'SPOT', STEP: 'STEP' };
+export const TYPE_LABEL = { ITEM: 'PICK', PLACE: 'SPOT', STEP: 'STEP', POINT: 'POINT' };
 // 카드뉴스 형식 — 뉴스 요약(7장) 외에 육아·생활 계정용 형식
 export const RECIPES = {
   news: { label: '📰 뉴스 요약 (7장)', plan: '' },
@@ -124,6 +124,11 @@ export const RECIPES = {
 ITEM 카드: title=아이템 이름(짧게), body=한 줄 추천 포인트, highlight=핵심 장점 단어, specs=[{k:"가격대",v:"…"},{k:"추천 대상",v:"…"},{k:"포인트",v:"…"}] (2~4개), emoji=아이템을 나타내는 이모지 1개.` },
   place: { label: '🎡 아기랑 가볼 곳', plan: `카드 7~8장: 1 HOOK(표지) → 2~5 PLACE 4장(layout "place", 한 장에 장소 하나) → LIFE/CHECK(준비물·주의할 점, kind "checklist") → CTA. 장소가 적으면 PLACE를 2~3장으로 줄인다.
 PLACE 카드: title=장소 이름, body=한 줄 꿀팁, highlight=추천 이유 단어, specs=[{k:"위치",v:"…"},{k:"운영",v:"…"},{k:"요금",v:"…"},{k:"추천 나이",v:"…"}] (확인된 것만 2~4개), emoji=장소 이모지 1개.` },
+  visit: { label: '📍 다녀왔어요 (내 사진·영상)', plan: '', own: true },
+  info_qa: { label: '❓ 육아 Q&A (결론 먼저)', info: true, plan: `카드 7~8장: 1 HOOK(독자가 궁금해할 질문형 표지) → 2 WHAT(layout "answer": title=한 줄 결론, body=조건·예외 한 줄) → 3 WHY(왜 그런지, layout "text") → 4~5 STEP(방법·순서, layout "text" 또는 "list") → LIFE/CHECK(이럴 땐 소아청소년과 상담 · 주의할 점, kind "checklist") → CTA(저장 유도).
+결론에는 반드시 출처에 있는 월령·양·횟수만 쓴다. 출처마다 표현이 다르면 compare 레이아웃으로 기관별 권고를 나란히 보여 준다.` },
+  info_top: { label: '⚠️ 주의 TOP N (돌 전 음식 등)', info: true, plan: `카드 6~8장: 1 HOOK(표지, "~ 주의할 것 N가지") → 2~6 POINT 3~5장(layout "point": title=항목 이름, body=이유 한 줄(40자 이내), specs=[{k:"월령",v:"…"}] 출처에 있을 때만, emoji=항목 이모지 1개) → LIFE/CHECK(이럴 땐 소아청소년과 상담, kind "checklist") → CTA.` },
+  info_check: { label: '✅ 시작 체크리스트', info: true, plan: `카드 7장: 1 HOOK → 2 WHAT(무엇이고 언제인지, layout "text") → 3 LIFE/CHECK(시작 신호·준비 체크, layout "list", kind "checklist") → 4~5 STEP(첫 주 진행 방법, layout "text") → 6 LIFE/CHECK(이럴 땐 멈추고 상담, kind "checklist") → CTA.` },
   guide: { label: '👶 육아 정보 (단계별)', plan: `카드 6~7장: 1 HOOK(표지) → 2 WHAT(무엇·누구 대상) → 3~5 STEP 3장(layout "list" 또는 "text", 순서대로 따라 하는 방법·신청 절차) → LIFE/CHECK(체크리스트) → CTA.` },
 };
 
@@ -139,6 +144,7 @@ export const DEFAULT_POSE = {
   ITEM: 'ok',
   PLACE: 'excited',
   STEP: 'explain',
+  POINT: 'check',
 };
 
 export const POSES = {
@@ -160,7 +166,7 @@ export const PRACTICAL_KINDS = {
   related: { label: '관련 보도', title: '다른 데선 이렇게 봤어', tag: 'MORE' },
 };
 
-export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta', 'product', 'place'];
+export const LAYOUTS = ['auto', 'big', 'text', 'list', 'number', 'compare', 'keyword', 'cta', 'product', 'place', 'photo', 'answer', 'point'];
 
 const str = { type: 'string' };
 const CARD_SCHEMA = {
@@ -275,6 +281,7 @@ export const SYSTEM_PROMPT = `너는 인스타그램 카드뉴스 브랜드 "MOA
 관심을 끄는 첫 문장 → 뉴스 핵심 2~3줄 → 모아의 한마디 → CTA(저장/공유/팔로우) → 출처 표기 순서. 해시태그는 hashtags 배열에 # 없이 5~15개.`;
 
 export function buildContentPrompt(news, opts = {}) {
+  if (news.guide) return buildGuidePrompt(news, opts);
   const lines = [];
   const rc = RECIPES[news.recipe] && news.recipe !== 'news' ? RECIPES[news.recipe] : null;
   lines.push(rc ? `아래 뉴스·메모로 "${rc.label}" 형식의 카드뉴스를 만들어 줘.` : '아래 뉴스로 MOA 7장 카드뉴스를 만들어 줘.');
@@ -513,7 +520,7 @@ export function normalizeContent(raw, news = {}) {
         leftTitle: clampText(cmp.leftTitle, 16), left: clampText(cmp.left, 80),
         rightTitle: clampText(cmp.rightTitle, 16), right: clampText(cmp.right, 80),
       },
-      layout: LAYOUTS.includes(card.layout) ? card.layout : (type === 'ITEM' ? 'product' : type === 'PLACE' ? 'place' : 'auto'),
+      layout: LAYOUTS.includes(card.layout) ? card.layout : (type === 'ITEM' ? 'product' : type === 'PLACE' ? 'place' : type === 'POINT' ? 'point' : 'auto'),
       pose: POSES[card.pose] ? card.pose : DEFAULT_POSE[type],
       moaSays: clampText(card.moaSays, 24),
       kind: PRACTICAL_KINDS[card.kind] ? card.kind : (type === 'LIFE/CHECK' ? 'checklist' : 'none'),
@@ -722,6 +729,106 @@ export function withArticleLink(caption, news, sources = []) {
   return `${cap.replace(/\n*출처:[^\n]*$/, '').trimEnd()}\n\n${block}`;
 }
 
+// ---------- 👶 육아 정보 (근거·출처·면책) ----------
+export const HEALTH_RULES = `[육아·건강 정보 원칙 — 반드시 지킨다]
+- 근거: 웹 검색으로 공식 자료(보건복지부·질병관리청·식품의약품안전처·국민건강보험공단 등 정부·공공기관, 대한소아청소년과학회 등 학회, WHO 등 국제기관)를 찾아 읽고 그 내용만으로 쓴다. 맘카페·블로그·광고성 글은 사실 근거로 쓰지 않는다.
+- 월령·양·횟수·기간 같은 숫자는 출처에 적힌 것만 쓴다. 확인이 안 되면 지어내지 말고 "확인 필요"로 두고 factNotes에 적는다. 출처마다 표현이 다르면 둘 다 병기한다.
+- 단정하지 않는다: "~해야 해요" 대신 "~를 권장해요", "~일 수 있어요". "반드시/절대/무조건/100%" 금지. 아기마다 다르다는 점을 한 번 밝힌다.
+- 질병의 치료·예방·완치 효과를 말하지 않는다. 특정 제품·건강기능식품의 효능을 단정하지 않는다.
+- 증상(알레르기 반응, 열, 구토 등)이 있으면 소아청소년과 상담을 권한다. 진단하지 않는다.
+- sources에는 기관명과 문서·페이지 이름("기관명 · 문서명")과 URL을 넣고, 마지막 카드(CTA) body에 "출처: 기관명" 한 줄을 넣는다.`;
+
+export function sourceKind(s) {
+  const t = `${s?.name || ''} ${s?.url || ''}`;
+  if (/\.go\.kr(?=[/:?#\s]|$)|\.gov(?=[/:?#\s]|$)|보건복지부|질병관리청|식품의약품안전처|식약처|정책브리핑|국민건강보험|한국소비자원/.test(t)) return 'gov';
+  if (/who\.int|세계보건기구|\bWHO\b|unicef/i.test(t)) return 'intl';
+  if (/대한소아|학회|협회|kps\.or\.kr|\.or\.kr(?=[/:?#\s]|$)/.test(t)) return 'society';
+  return 'media';
+}
+export const SOURCE_KIND_LABEL = { gov: '🏛️ 공공기관', intl: '🌐 국제기관', society: '🩺 학회·협회', media: '📰 언론·기타' };
+export const isOfficialSource = (s) => sourceKind(s) !== 'media';
+
+export const GUIDE_DISCLAIMER = '아기마다 달라요. 걱정되는 증상이 있으면 소아청소년과와 상담하세요.';
+export const STALE_DAYS = 90;
+const ymd = (d) => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+export const isStale = (checkedAt, now = Date.now()) => !checkedAt || (now - new Date(checkedAt).getTime()) / 864e5 > STALE_DAYS;
+
+// 육아 정보 콘텐츠 마무리: 확인일·출처·면책을 캡션과 마지막 카드에 넣는다
+export function finalizeGuide(body, guide, now = new Date()) {
+  const srcs = (body.sources || []).filter((x) => x && (x.name || x.url));
+  const names = [...new Set(srcs.map((x) => String(x.name || '').split('·')[0].trim()).filter(Boolean))].slice(0, 3);
+  body.guide = { ...guide, format: guide.format };
+  body.checkedAt = now.toISOString();
+  const last = body.cards[body.cards.length - 1];
+  if (last && !String(last.body || '').includes('출처')) last.body = [names.length ? `출처: ${names.join(', ')}` : '', '아기마다 달라요'].filter(Boolean).join(' · ').slice(0, 60);
+  let cap = String(body.caption || '').trimEnd();
+  if (!cap.includes('아기마다 달라요')) cap += `\n\n※ ${GUIDE_DISCLAIMER}`;
+  if (!cap.includes('📚 근거')) cap += `\n📚 근거: ${srcs.length ? srcs.slice(0, 4).map((x) => `${x.name || x.url}${x.url ? ` (${x.url})` : ''}`).join(' / ') : '출처 확인 필요'} · 확인 ${ymd(now)}`;
+  body.caption = cap;
+  return body;
+}
+
+// 발행 전 점검: 출처·표현·면책·최신성
+export function reviewGuide(c, now = Date.now()) {
+  const warnings = [];
+  const srcs = c.sources || [];
+  if (!srcs.length) warnings.push('출처가 없어요. 공식 자료를 찾아 출처를 넣어 주세요.');
+  else if (!srcs.some(isOfficialSource)) warnings.push('공공기관·학회·국제기관 출처가 없어요. 언론 기사만으로는 의학·영양 정보의 근거가 약해요.');
+  const text = [c.title, c.caption, ...(c.cards || []).flatMap((k) => [k.title, k.body, ...(k.items || []), ...(k.specs || []).map((x) => x.v)])].join('\n');
+  const eff = text.match(/치료|완치|예방 효과|효능|특효|낫게/g);
+  if (eff) warnings.push(`치료·예방·효능 표현이 있어요(${[...new Set(eff)].join(', ')}). 효과를 말하지 않는 표현으로 바꿔 주세요.`);
+  const abs = text.match(/반드시|절대|무조건|100%/g);
+  if (abs) warnings.push(`단정하는 표현이 있어요(${[...new Set(abs)].join(', ')}). "~를 권장해요"처럼 바꿔 주세요.`);
+  if (!String(c.caption || '').includes('아기마다 달라요')) warnings.push('캡션에 면책 문구가 없어요.');
+  if ((c.factNotes || []).length) warnings.push(`AI가 확인이 필요하다고 표시한 내용이 ${c.factNotes.length}건 있어요.`);
+  if (isStale(c.checkedAt, now)) warnings.push(`확인한 지 ${STALE_DAYS}일이 지났어요. 최신 기준을 다시 확인해 주세요.`);
+  const r = c.review || {};
+  const done = !!(r.age && r.nums && r.sources);
+  return { warnings, official: srcs.filter(isOfficialSource).length, done, ready: done && !warnings.some((w) => /^출처|^공공기관|^치료|^캡션/.test(w)) };
+}
+
+export function buildGuidePrompt(news, opts = {}) {
+  const g = news.guide || {};
+  const rc = RECIPES[news.recipe] || RECIPES.info_qa;
+  const today = ymd(new Date());
+  const L = [];
+  L.push(`"${rc.label}" 형식의 육아 정보 카드뉴스를 만들어 줘. 오늘은 ${today}이다.`);
+  L.push(`주제: ${g.title || news.title}${g.age ? ` (월령: ${g.age})` : ''}${g.group ? ` · 분야: ${g.group}` : ''}`);
+  if (news.summary) L.push(`독자가 궁금해하는 점: ${news.summary}`);
+  L.push('독자: 영유아를 키우는 엄마·아빠. 말투는 다정한 설명체(~해요).');
+  L.push('');
+  L.push(HEALTH_RULES);
+  L.push('');
+  L.push(`[형식] ${rc.plan}`);
+  L.push('시스템 지시의 7장 구조 대신 위 [형식]의 순서와 장 수를 따른다. 안 쓰는 필드는 빈 값으로 둔다. category는 PARENTING.');
+  L.push('캡션: 훅 한 줄 → 핵심 3줄 → 저장·공유 유도 → 팔로우 문구. 면책·근거 줄은 앱이 붙이니 쓰지 않는다. 해시태그는 #육아 #육아정보 #월령·주제 키워드 등 5~15개(# 없이).');
+  if (opts.extra) L.push(`추가 요청: ${opts.extra}`);
+  if (opts.handle) L.push(`캡션의 팔로우 문구는 "🧸 ${opts.handle} 팔로우하고 육아·살림 꿀정보 받기"로 쓴다.`);
+  return L.join('\n');
+}
+
+// AI 없이: 구조만 잡은 빈 틀 (의학·영양 내용은 직접 확인해 채운다)
+export function templateGuide(news, { handle = '@moa.story' } = {}) {
+  const g = news.guide || {};
+  const recipe = RECIPES[news.recipe]?.info ? news.recipe : 'info_qa';
+  const base = templateContent({ ...news, title: g.title || news.title }, { handle });
+  const blank = { body: '', highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' }, layout: 'auto', pose: 'default', moaSays: '', kind: 'none', specs: [], emoji: '', style: {} };
+  const card = (type, o) => ({ ...blank, type, pose: DEFAULT_POSE[type] || 'default', ...o });
+  const fill = '(공식 자료를 확인해 입력)';
+  const mid = recipe === 'info_top'
+    ? [1, 2, 3].map((i) => card('POINT', { title: `항목 ${i}`, body: fill, layout: 'point', emoji: '⚠️' }))
+    : recipe === 'info_check'
+      ? [card('WHAT', { title: '언제 시작하나요?', body: fill, layout: 'text' }), card('LIFE/CHECK', { title: '이런 신호가 있으면', layout: 'list', kind: 'checklist', items: ['신호 1 (확인 후 입력)', '신호 2', '신호 3'] }), card('STEP', { title: '첫 주 이렇게', body: fill, layout: 'text' })]
+      : [card('WHAT', { title: '결론부터!', body: fill, layout: 'answer' }), card('WHY', { title: '왜 그럴까요?', body: fill, layout: 'text' }), card('STEP', { title: '이렇게 해 보세요', body: fill, layout: 'text' })];
+  return {
+    ...base, recipe, category: 'PARENTING', sources: [],
+    cards: [card('HOOK', { title: g.title || base.title, body: '끝까지 보면 알려줄게요', layout: 'big', moaSays: '궁금했지?' }), ...mid,
+      card('LIFE/CHECK', { title: '이럴 땐 소아과 상담!', layout: 'list', kind: 'checklist', items: ['증상이 있거나 걱정될 때', '아기가 평소와 다를 때', '월령·양이 헷갈릴 때'] }),
+      card('CTA', { title: '저장해 두고\n필요할 때 꺼내 봐요', layout: 'cta', body: '', moaSays: '또 만나요!' })],
+    factNotes: ['AI 없이 만든 빈 틀이에요. 의학·영양 내용은 공식 자료를 확인해 직접 채우고 출처를 넣어 주세요.'],
+  };
+}
+
 // ---------- 계정별 캐릭터 이름 반영 ----------
 // 기본 프롬프트·템플릿은 모아 기준이라, 다른 캐릭터 계정이면 이름·브랜드를 바꿔 넣는다
 export function personaSystem(base, { charName = '모아', charDesc = '', brand = '', focus = '' } = {}) {
@@ -778,6 +885,68 @@ export function templateRecipe(news, recipe, { handle = '@moa.story' } = {}) {
     ];
   }
   return { ...base, recipe, cards: [hook, ...mid, cta], factNotes: ['AI 없이 만든 형식 틀이에요. 아이템·장소·단계 내용을 직접 채워 주세요("확인 필요" 부분).', ...(base.factNotes || [])] };
+}
+
+// ---------- 📍 다녀왔어요: 내가 다녀온 곳을 내 사진·영상으로 소개 ----------
+const memoSpeak = (t) => String(t).trim().replace(/[.。]+$/, '')
+  .replace(/있음$/, '있어요').replace(/없음$/, '없어요').replace(/좋음$/, '좋아요').replace(/많음$/, '많아요')
+  .replace(/큼$/, '커요').replace(/했음$/, '했어요').replace(/됨$/, '돼요').replace(/함$/, '해요').replace(/감$/, '가요').replace(/([가-힣])임$/, '$1이에요');
+export const memoLines = (memo) => String(memo || '').split(/(?<=[.!?。~])\s+|\n+/).map((x) => memoSpeak(x)).filter((x) => x.length > 1);
+export const visitSpecs = (v = {}) => [['위치', v.area], ['운영', v.hours], ['요금', v.fee], ['추천 나이', v.age], ['편의시설', v.extra]]
+  .filter(([, x]) => String(x || '').trim()).map(([k, x]) => ({ k, v: String(x).trim().slice(0, 40) }));
+const visitTitle = (v) => (v.title || '아기랑 여기\n다녀왔어요!').trim();
+
+export function buildVisitPrompt(v, { handle = '', photos = 0 } = {}) {
+  const L = [];
+  L.push('내가 아기랑 직접 다녀온 곳을 내 사진으로 소개하는 "다녀왔어요" 카드뉴스를 만들어 줘.');
+  L.push(`표지 제목(썸네일): ${visitTitle(v).replace(/\n/g, ' / ')} — 이 문구를 거의 그대로 쓰고 줄바꿈만 다듬는다.`);
+  L.push(`장소: ${v.place || '(이름 없음)'}`);
+  visitSpecs(v).forEach((x) => L.push(`${x.k}: ${x.v}`));
+  L.push(`내 메모(대충 적은 후기): ${v.memo || '(없음)'}`);
+  L.push(`첨부 사진 ${photos}장은 내가 찍은 사진이다(순서대로). 사진 속 장면을 보고 설명을 쓰되, 사진에 없는 사실은 만들지 않는다.`);
+  L.push('');
+  L.push(`[형식] 카드 ${photos + 3}장 이내:`);
+  L.push(`- 1장 HOOK: layout "photo", title=표지 제목, body=장소 이름, highlight="다녀왔어요" 또는 장소 이름, moaSays=짧은 감탄.`);
+  L.push(`- 2~${Math.max(2, photos)}장 WHAT: layout "photo", 사진 한 장당 카드 하나(사진 2번부터 순서대로). title=그 사진 장면을 말하듯 짧게(18자 안팎, 1~2줄), body=덧붙일 한마디(30자 이내, 없으면 "").`);
+  L.push('- 그다음 PLACE: layout "place", title=장소 이름, specs=위에 준 위치·운영·요금·추천 나이·편의시설만(없는 건 빼기), body=내 메모에서 뽑은 꿀팁 한 줄, emoji=장소 이모지.');
+  L.push('- 그다음 LIFE/CHECK: layout "list", kind "checklist", title="가기 전 체크!", items=메모에 나온 팁과 아기 동반 준비물(3~4개).');
+  L.push('- 마지막 CTA: layout "cta".');
+  L.push('말투는 직접 다녀온 엄마·아빠의 다정한 후기체(~했어요, ~좋아요). 광고처럼 쓰지 않는다. 운영 정보는 바뀔 수 있으니 캡션에 "방문 전 확인"을 한 줄 넣는다.');
+  L.push(`캡션: "아기랑 ${v.place || '여기'} 다녀왔어요" 느낌의 첫 줄 → 후기 2~4줄 → 장소 정보(📍 위치 등) → 저장·공유 유도 → "${handle} 팔로우" 문구. 해시태그는 #아기랑가볼만한곳 #아이랑가볼만한곳 지역+가볼만한곳 장소명 등 5~15개(# 없이).`);
+  L.push('category는 OUTING.');
+  return L.join('\n');
+}
+
+export function templateVisit(v, { handle = '@moa.story', photos = 1 } = {}) {
+  const lines = memoLines(v.memo);
+  const place = String(v.place || '').trim() || '우리가 다녀온 곳';
+  const blank = { body: '', highlight: '', items: [], number: '', numberLabel: '', compare: { leftTitle: '', left: '', rightTitle: '', right: '' }, layout: 'photo', pose: 'default', moaSays: '', kind: 'none', specs: [], emoji: '', style: {} };
+  const card = (type, o) => ({ ...blank, type, pose: DEFAULT_POSE[type] || 'default', ...o });
+  const shots = Math.max(0, Math.min(6, photos - 1));
+  const photoCards = Array.from({ length: shots }, (_, i) => card('WHAT', { title: lines[i] || `${i + 2}번째 사진 이야기를 적어 주세요`, layout: 'photo' }));
+  const tips = lines.filter((x) => /팁|추천|꼭|주의|미리|챙기|예약|주차|수유|유모차/.test(x)).slice(0, 2);
+  const specs = visitSpecs(v);
+  const area = (v.area || '').split(/\s+/)[0] || '';
+  const tag = (x) => String(x).replace(/\s+/g, '');
+  return {
+    title: `${place} 다녀왔어요`,
+    category: 'OUTING',
+    recipe: 'visit',
+    hook: visitTitle(v).replace(/\n/g, ' '),
+    cards: [
+      card('HOOK', { title: visitTitle(v), body: place, highlight: '다녀왔어요', moaSays: '여기 좋아요!' }),
+      ...photoCards,
+      card('PLACE', { title: place, layout: 'place', specs: specs.length ? specs : [{ k: '위치', v: '입력해 주세요' }], body: tips[0] || lines[lines.length - 1] || '한 줄 꿀팁을 적어 주세요', emoji: '📍' }),
+      card('LIFE/CHECK', { title: '가기 전 체크!', layout: 'list', kind: 'checklist', items: [...tips, '운영 시간·휴무일 미리 확인', '여벌 옷·물티슈 챙기기', '수유실·유모차 대여 확인'].slice(0, 4) }),
+      card('CTA', { title: '주말에 가 보세요!\n저장해 두기', layout: 'cta', body: '다녀온 곳만 솔직하게 소개해요', moaSays: '또 만나요!' }),
+    ],
+    moaComment: '',
+    cta: '저장해 두고 주말에 가 보세요',
+    caption: [`아기랑 ${place} 다녀왔어요 📍`, '', ...lines.slice(0, 4), '', ...specs.map((x) => `${x.k === '위치' ? '📍' : x.k === '운영' ? '⏰' : x.k === '요금' ? '💰' : x.k === '추천 나이' ? '👶' : '✅'} ${x.k}: ${x.v}`), '※ 운영 정보는 바뀔 수 있으니 방문 전 확인해 주세요.', '', '📌 저장해 두고 주말에 가 보세요', '💬 같이 갈 사람 태그하기', `${handle} 팔로우하고 아기랑 갈 곳 더 보기`].join('\n').replace(/\n{3,}/g, '\n\n'),
+    hashtags: [...new Set(['아기랑가볼만한곳', '아이랑가볼만한곳', area && `${tag(area)}가볼만한곳`, tag(place), '주말나들이', '육아맘', '아기랑나들이'].filter(Boolean))].slice(0, 12),
+    sources: [],
+    factNotes: lines.length ? [] : ['메모가 비어 있어 사진 카드 문구를 직접 채워 주세요.'],
+  };
 }
 
 export function introContentHappy() {

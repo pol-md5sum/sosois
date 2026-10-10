@@ -1,3 +1,5 @@
 node_modules/
 _site/
 data/news.json
+scripts/e2e/.media/
+scripts/e2e/out/

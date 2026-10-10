@@ -225,3 +225,14 @@ td select { width: auto; padding: 5px 8px; }
 .link-box input { font-size: 13px; }
 .slide-tools { gap: 4px; }
 .slide-tools .btn { padding: 4px 9px; }
+.visit-box { border: 2px solid var(--accent-profile, #F0506E); }
+.visit-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.visit-thumbs figure { position: relative; margin: 0; width: 96px; }
+.visit-thumbs img { width: 96px; height: 120px; object-fit: cover; border-radius: 10px; display: block; }
+.visit-thumbs figcaption { font-size: 12px; text-align: center; color: var(--muted, #888); }
+.visit-thumbs button { position: absolute; top: 4px; right: 4px; padding: 0 6px; }
+.chip.warn { background: #fde8ec; color: #c0294a; }
+ul.plain { margin: 4px 0 0; padding-left: 18px; }
+.care-topic h3 { font-size: 17px; }
+.care-fmt { width: 100%; max-width: 280px; }
+.guide-panel { border: 2px solid #F5C26B; }

@@ -29,6 +29,10 @@ export const HAPPY_FEEDS = [
   { category: 'PARENTING', url: q('육아 OR 부모급여 OR 아동수당 OR 어린이집 OR 육아휴직') },
   { category: 'PARENTING', url: q('아이 키우기 OR 육아맘 OR 육아 꿀팁 OR 영유아 건강') },
   { category: 'BABY', url: q('아기용품 OR 유아용품 OR 출산용품 OR 이유식 OR 기저귀 OR 분유') },
+  // 육아 정보: 공식 기관(보건복지부·질병관리청·식약처)과 학회 소식
+  { category: 'PARENTING', url: q('보건복지부 영유아 OR 질병관리청 영유아 OR 영유아 건강검진 OR 영유아 예방접종') },
+  { category: 'BABY', url: q('식품의약품안전처 영유아 OR 영유아식 OR 이유식 안전 OR 모유수유') },
+  { category: 'PARENTING', url: q('소아청소년과 육아 OR 대한소아청소년과학회 OR 아기 알레르기 OR 아기 양치') },
   { category: 'BABY', url: q('베이비페어 OR 유모차 OR 카시트 OR 신생아 OR 어린이 제품 리콜') },
   { category: 'LIVING', url: q('생활용품 OR 주방용품 OR 세제 OR 수납 OR 청소용품 OR 살림') },
   { category: 'ITEM', url: q('생활템 OR 살림템 OR 육아템 OR 꿀템 OR 다이소 신상 OR 품절템') },
@@ -133,7 +137,7 @@ export function classify(title, fallback = 'NEWS', only = null) {
 }
 
 export const HAPPY_KW = {
-  PARENTING: ['육아', '부모', '엄마', '아빠', '어린이집', '유치원', '부모급여', '아동수당', '육아휴직', '출산', '임신', '영유아', '아이', '돌봄', '발달'],
+  PARENTING: ['육아', '부모', '엄마', '아빠', '어린이집', '유치원', '부모급여', '아동수당', '육아휴직', '출산', '임신', '영유아', '아이', '돌봄', '발달', '모유', '수유', '알레르기', '예방접종', '검진', '양치', '소아청소년과'],
   BABY: ['아기', '신생아', '유아', '이유식', '기저귀', '분유', '젖병', '유모차', '카시트', '아기띠', '베이비', '출산용품', '유아용품', '아기용품'],
   LIVING: ['생활용품', '주방', '세제', '수납', '정리', '청소', '살림', '욕실', '세탁', '냄비', '프라이팬', '청소기'],
   ITEM: ['생활템', '살림템', '육아템', '꿀템', '추천템', '다이소', '품절', '인기템', '신상', '가성비'],
@@ -237,7 +241,7 @@ export function buildHappyItems(hraw, now = Date.now()) {
     };
   }).filter((x) => x.scores.target > 30 || x.category !== 'PARENTING' || /육아|아이|아기|부모/.test(x.title))
     .sort((a, b) => b.moaScore - a.moaScore);
-  return selectBalanced(list, 15, 85, ['PARENTING', 'BABY', 'LIVING', 'ITEM', 'OUTING']);
+  return selectBalanced(list, 18, 100, ['PARENTING', 'BABY', 'LIVING', 'ITEM', 'OUTING']);
 }
 async function fetchText(url) {
   const res = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (MOA Content Studio news bot)' }, signal: AbortSignal.timeout(20000) });

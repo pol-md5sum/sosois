@@ -1,1 +1,14 @@
-{ "name": "moa-content-studio", "private": true, "type": "module", "scripts": { "news": "node scripts/fetch-news.mjs", "test": "node scripts/selftest.mjs" } }
+{
+  "name": "moa-content-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "news": "node scripts/fetch-news.mjs",
+    "test": "node scripts/selftest.mjs",
+    "e2e": "node scripts/e2e/run.mjs",
+    "e2e:media": "node scripts/e2e/make-media.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}
